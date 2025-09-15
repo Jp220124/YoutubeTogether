@@ -208,12 +208,13 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
 
     let previousTime = 0;
     let checkCount = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let socket: any = null;
 
     // Try to get socket, handle if not ready
     try {
       socket = getSocket();
-    } catch (e) {
+    } catch {
       console.log('Socket not ready yet, will retry...');
     }
 
@@ -223,7 +224,7 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
         try {
           socket = getSocket();
           console.log('Socket connected!');
-        } catch (e) {
+        } catch {
           console.log('Still waiting for socket...');
           return;
         }
