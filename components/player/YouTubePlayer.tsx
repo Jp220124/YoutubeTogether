@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, memo, useCallback } from 'react';
 import { getSocket } from '@/lib/socket/socket';
 import { VideoState } from '@/types';
+import * as Icons from 'react-feather';
 
 declare global {
   interface Window {
@@ -19,15 +20,18 @@ interface YouTubePlayerProps {
   onVideoStateChange?: (state: Partial<VideoState>) => void;
 }
 
-export default function YouTubePlayer({ roomId, isHost, videoState, onVideoStateChange }: YouTubePlayerProps) {
+const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, onVideoStateChange }: YouTubePlayerProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isReady, setIsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const ignoreNextStateChange = useRef(false);
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  console.log('YouTubePlayer render:', { videoState, isHost, isReady });
+  // Remove console log to reduce noise
+  // console.log('YouTubePlayer render:', { videoState, isHost, isReady });
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -63,11 +67,11 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
         playerVars: {
           autoplay: 0,
           controls: isHost ? 1 : 0,
-          disablekb: 1, // Disable keyboard controls for everyone
+          disablekb: !isHost ? 1 : 0, // Disable keyboard for viewers only
           modestbranding: 1,
           rel: 0,
           origin: window.location.origin,
-          fs: isHost ? 1 : 0, // Only host can fullscreen
+          fs: 0, // Disable YouTube's fullscreen (we use custom)
           playsinline: 1,
         },
         events: {
@@ -145,6 +149,12 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
       if (playerRef.current && playerRef.current.playVideo) {
         ignoreNextStateChange.current = true;
         playerRef.current.playVideo();
+        // Also sync the time in case of drift
+        if (videoState.currentTime > 0) {
+          setTimeout(() => {
+            playerRef.current.seekTo(videoState.currentTime, true);
+          }, 100);
+        }
       }
     };
 
@@ -160,8 +170,21 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
       console.log('Viewer: Received seek command:', time);
       ignoreNextStateChange.current = true;
       if (playerRef.current && playerRef.current.seekTo) {
+        // Clear any pending sync
+        if (syncTimeoutRef.current) {
+          clearTimeout(syncTimeoutRef.current);
+        }
+
+        // Immediate seek
         playerRef.current.seekTo(time, true);
-        console.log('Viewer: Seeking to:', time);
+
+        // Force sync after a short delay to ensure accuracy
+        syncTimeoutRef.current = setTimeout(() => {
+          if (playerRef.current && playerRef.current.seekTo) {
+            playerRef.current.seekTo(time, true);
+            console.log('Viewer: Force sync to:', time);
+          }
+        }, 100);
       } else {
         console.error('Viewer: Player not ready for seek');
       }
@@ -194,13 +217,31 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
       if (!isHost) handleVideoChange(videoId);
     });
 
+    // Add sync-video listener for viewers
+    socket.on('sync-video', (state: VideoState) => {
+      if (!isHost && playerRef.current && playerRef.current.seekTo) {
+        console.log('Viewer: Syncing to state:', state);
+        // Sync time
+        if (Math.abs(playerRef.current.getCurrentTime() - state.currentTime) > 1) {
+          playerRef.current.seekTo(state.currentTime, true);
+        }
+        // Sync play state
+        if (state.isPlaying && playerRef.current.getPlayerState() !== 1) {
+          playerRef.current.playVideo();
+        } else if (!state.isPlaying && playerRef.current.getPlayerState() === 1) {
+          playerRef.current.pauseVideo();
+        }
+      }
+    });
+
     return () => {
       socket.off('play');
       socket.off('pause');
       socket.off('seek');
       socket.off('video-changed');
+      socket.off('sync-video');
     };
-  }, [isHost]);
+  }, [isHost, videoState.currentTime]);
 
   // Monitor for seeks and sync time for host
   useEffect(() => {
@@ -240,7 +281,10 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
         const playerState = playerRef.current.getPlayerState ? playerRef.current.getPlayerState() : -1;
         const isPlaying = playerState === 1; // YT.PlayerState.PLAYING = 1
 
-        console.log(`Host: Check #${checkCount++}`, { currentTime, isPlaying, previousTime });
+        // Reduce console logging
+        if (checkCount++ % 10 === 0) {
+          console.log(`Host: Sync check #${checkCount}`, { currentTime, isPlaying });
+        }
 
         // Check for seek (time jump) - only after we have a previous time
         if (previousTime > 0) {
@@ -255,9 +299,8 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
               roomId
             });
 
-            // Make sure socket emit is working
-            const result = socket.emit('seek-video', { roomId, time: currentTime });
-            console.log('Emit result:', result);
+            // Emit seek to server
+            socket.emit('seek-video', { roomId, time: currentTime });
           }
         }
 
@@ -284,42 +327,103 @@ export default function YouTubePlayer({ roomId, isHost, videoState, onVideoState
   }, [isHost, roomId]);
 
 
+  // Fullscreen handler
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      const container = containerRef.current?.parentElement;
+      if (container) {
+        container.requestFullscreen().then(() => {
+          setIsFullscreen(true);
+        }).catch(err => {
+          console.error('Error entering fullscreen:', err);
+        });
+      }
+    } else {
+      document.exitFullscreen().then(() => {
+        setIsFullscreen(false);
+      }).catch(err => {
+        console.error('Error exiting fullscreen:', err);
+      });
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   return (
-    <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ paddingBottom: '56.25%' }}>
+    <div className="relative w-full bg-black rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: '16/9' }}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
-          <div className="text-white">Loading video...</div>
+          <div className="text-white flex flex-col items-center gap-3">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+            <span>Loading video...</span>
+          </div>
         </div>
       )}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
 
-      {/* Overlay to prevent non-host interactions */}
-      {!isHost && !isLoading && (
-        <div
-          className="absolute inset-0 z-20"
-          style={{
-            cursor: 'not-allowed',
-            pointerEvents: 'all',
-            backgroundColor: 'transparent'
-          }}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          onDoubleClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
-        >
-          <div className="absolute bottom-4 left-4 bg-black/80 text-white px-3 py-2 rounded text-sm font-medium shadow-lg">
-            🔒 Only the host can control playback
+      {/* Control overlay for all users */}
+      {!isLoading && (
+        <div className="absolute inset-0 z-20 pointer-events-none">
+          {/* Fullscreen button for everyone */}
+          <button
+            onClick={toggleFullscreen}
+            className="absolute top-4 right-4 p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg pointer-events-auto transition-all hover:scale-110 group"
+            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          >
+            {isFullscreen ? (
+              <Icons.Minimize className="w-5 h-5" />
+            ) : (
+              <Icons.Maximize className="w-5 h-5" />
+            )}
+          </button>
+
+          {/* Host/Viewer indicator */}
+          <div className="absolute bottom-4 left-4 bg-black/80 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg flex items-center gap-2">
+            {isHost ? (
+              <>
+                <Icons.Award className="w-4 h-4 text-yellow-400" />
+                <span>You have control</span>
+              </>
+            ) : (
+              <>
+                <Icons.Lock className="w-4 h-4 text-gray-400" />
+                <span>Host controls playback</span>
+              </>
+            )}
           </div>
+
+          {/* Click blocker for non-hosts - but not blocking the fullscreen button area */}
+          {!isHost && (
+            <div
+              className="absolute inset-0 pointer-events-auto"
+              style={{
+                cursor: 'not-allowed',
+                clipPath: 'polygon(0 0, calc(100% - 60px) 0, calc(100% - 60px) 60px, 100% 60px, 100% 100%, 0 100%)'
+              }}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onDoubleClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+            />
+          )}
         </div>
       )}
     </div>
   );
-}
+});
+
+export default YouTubePlayer;

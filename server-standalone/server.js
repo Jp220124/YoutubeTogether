@@ -6,6 +6,8 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 
 // Room management
 const rooms = new Map();
+// Map to track user sessions for host persistence
+const userSessions = new Map(); // Maps sessionId -> { roomId, isHost }
 
 const httpServer = createServer();
 
@@ -24,13 +26,18 @@ const io = new Server(httpServer, {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
-  socket.on('join-room', ({ roomId, username }) => {
+  socket.on('join-room', ({ roomId, username, sessionId }) => {
     socket.join(roomId);
 
+    let shouldBeHost = false;
+
     if (!rooms.has(roomId)) {
+      // New room - first user becomes host
+      shouldBeHost = true;
       rooms.set(roomId, {
         id: roomId,
         host: socket.id,
+        hostSessionId: sessionId || socket.id,
         users: new Map(),
         videoState: {
           videoId: null,
@@ -40,10 +47,44 @@ io.on('connection', (socket) => {
         },
         queue: []
       });
+    } else {
+      const room = rooms.get(roomId);
+
+      // Check if this is the returning host
+      if (sessionId && room.hostSessionId === sessionId) {
+        // Original host is returning - give them back host status
+        const oldHost = room.host;
+        room.host = socket.id;
+        shouldBeHost = true;
+
+        // Remove host status from old host if they exist
+        if (oldHost !== socket.id && room.users.has(oldHost)) {
+          const oldHostUser = room.users.get(oldHost);
+          if (oldHostUser) {
+            oldHostUser.isHost = false;
+          }
+        }
+      } else if (room.users.size === 0) {
+        // Room exists but is empty (everyone left) - new user becomes host
+        room.host = socket.id;
+        room.hostSessionId = sessionId || socket.id;
+        shouldBeHost = true;
+      }
+      // Otherwise, they're just a regular viewer
     }
 
     const room = rooms.get(roomId);
-    room.users.set(socket.id, { id: socket.id, username, isHost: room.host === socket.id });
+    room.users.set(socket.id, {
+      id: socket.id,
+      username,
+      sessionId: sessionId || socket.id,
+      isHost: shouldBeHost
+    });
+
+    // Store session info
+    if (sessionId) {
+      userSessions.set(sessionId, { roomId, isHost: shouldBeHost });
+    }
 
     // Calculate current video time if playing
     let adjustedVideoState = { ...room.videoState };
@@ -65,8 +106,13 @@ io.on('connection', (socket) => {
 
     // Notify others
     socket.to(roomId).emit('user-joined', {
-      user: { id: socket.id, username, isHost: false }
+      user: { id: socket.id, username, isHost: shouldBeHost }
     });
+
+    // If host status changed, notify all users
+    if (shouldBeHost) {
+      io.to(roomId).emit('host-changed', socket.id);
+    }
   });
 
   socket.on('video-state-change', ({ roomId, state }) => {
@@ -153,10 +199,21 @@ io.on('connection', (socket) => {
       if (room.users.has(socket.id)) {
         room.users.delete(socket.id);
 
-        // If host left, assign new host
+        // If host left, assign new host temporarily but keep original hostSessionId
         if (room.host === socket.id && room.users.size > 0) {
           const newHost = room.users.keys().next().value;
           room.host = newHost;
+          const newHostUser = room.users.get(newHost);
+          if (newHostUser) {
+            newHostUser.isHost = true;
+            // DON'T change hostSessionId - keep it for when original host returns
+            // room.hostSessionId stays the same!
+
+            // Update session for temporary host
+            if (newHostUser.sessionId) {
+              userSessions.set(newHostUser.sessionId, { roomId, isHost: true });
+            }
+          }
           io.to(roomId).emit('host-changed', newHost);
         }
 
