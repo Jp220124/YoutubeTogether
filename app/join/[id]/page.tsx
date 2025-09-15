@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import * as Icons from 'react-feather';
 
+export const runtime = 'edge';
+
 export default function JoinPage() {
   const params = useParams();
   const router = useRouter();
