@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, memo, useCallback } from 'react';
+import { useEffect, useRef, useState, memo } from 'react';
 import { getSocket } from '@/lib/socket/socket';
 import { VideoState } from '@/types';
 import * as Icons from 'react-feather';

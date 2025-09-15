@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import * as Icons from 'react-feather';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
@@ -12,7 +11,6 @@ import JoinRoomModal from '@/components/room/JoinRoomModal';
 export default function Home() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
     AOS.init({

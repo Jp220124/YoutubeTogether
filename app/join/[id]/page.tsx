@@ -57,7 +57,7 @@ export default function JoinPage() {
           </motion.div>
 
           <h1 className="text-3xl font-bold text-gray-800 mb-2">Join Watch Party</h1>
-          <p className="text-gray-600">You\'ve been invited to room</p>
+          <p className="text-gray-600">You&apos;ve been invited to room</p>
 
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}

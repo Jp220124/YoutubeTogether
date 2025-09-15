@@ -36,6 +36,7 @@ export default function Room() {
 
   const [isConnected, setIsConnected] = useState(false);
   const [error] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showCopied, setShowCopied] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -131,6 +132,7 @@ export default function Room() {
     updateVideoState(state);
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const copyRoomLink = () => {
     const link = `${window.location.origin}/join/${roomId}`;
     navigator.clipboard.writeText(link);
