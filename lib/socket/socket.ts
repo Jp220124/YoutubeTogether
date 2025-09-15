@@ -5,8 +5,11 @@ let socket: Socket | null = null;
 export const initSocket = () => {
   if (!socket) {
     socket = io(process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000', {
-      transports: ['websocket'],
+      transports: ['polling', 'websocket'], // Start with polling, then upgrade to websocket
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
   }
   return socket;
