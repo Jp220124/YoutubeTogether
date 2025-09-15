@@ -28,33 +28,27 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const ignoreNextStateChange = useRef(false);
-  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isMobile = useRef(false);
-  const isIOS = useRef(false);
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSyncTime = useRef(0);
+  const playStartTime = useRef(0);
+  const playStartPosition = useRef(0);
 
   // Remove console log to reduce noise
   // console.log('YouTubePlayer render:', { videoState, isHost, isReady });
 
   // Load YouTube IFrame API
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      // Detect mobile and iOS
-      const userAgent = navigator.userAgent.toLowerCase();
-      isMobile.current = /mobile|android|iphone|ipad|ipod/.test(userAgent);
-      isIOS.current = /iphone|ipad|ipod/.test(userAgent);
+    if (typeof window !== 'undefined' && !window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
 
-      if (!window.YT) {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        const firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
-
-        window.onYouTubeIframeAPIReady = () => {
-          setIsReady(true);
-        };
-      } else {
+      window.onYouTubeIframeAPIReady = () => {
         setIsReady(true);
-      }
+      };
+    } else if (window.YT) {
+      setIsReady(true);
     }
   }, []);
 
@@ -118,21 +112,27 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
 
             if (!isHost) return;
 
-            // Skip buffering state changes on mobile to reduce lag
-            if (isMobile.current && event.data === window.YT.PlayerState.BUFFERING) {
-              return;
-            }
-
             const socket = getSocket();
 
             switch (event.data) {
               case window.YT.PlayerState.PLAYING:
-                socket.emit('play-video', { roomId });
+                // Record when playback started for timestamp sync
+                playStartTime.current = Date.now();
+                playStartPosition.current = event.target.getCurrentTime();
+
+                socket.emit('play-video', {
+                  roomId,
+                  timestamp: playStartTime.current,
+                  position: playStartPosition.current
+                });
                 onVideoStateChange?.({ isPlaying: true });
                 break;
 
               case window.YT.PlayerState.PAUSED:
-                socket.emit('pause-video', { roomId });
+                socket.emit('pause-video', {
+                  roomId,
+                  position: event.target.getCurrentTime()
+                });
                 onVideoStateChange?.({ isPlaying: false });
                 break;
             }
@@ -157,23 +157,34 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, videoState.videoId, roomId, isHost]);
 
-  // Handle remote control events
+  // Handle remote control events with timestamp-based sync
   useEffect(() => {
     const socket = getSocket();
 
-    const handlePlay = () => {
-      console.log('Viewer: Received play command');
+    const handlePlay = (data: { timestamp: number; position: number }) => {
+      console.log('Viewer: Received play command with timestamp sync');
       if (playerRef.current && playerRef.current.playVideo) {
         ignoreNextStateChange.current = true;
+
+        // Calculate where the video should be based on timestamp
+        const elapsed = (Date.now() - data.timestamp) / 1000; // Convert to seconds
+        const targetPosition = data.position + elapsed;
+
+        playerRef.current.seekTo(targetPosition, true);
         playerRef.current.playVideo();
+
+        // Store sync reference
+        playStartTime.current = data.timestamp;
+        playStartPosition.current = data.position;
       }
     };
 
-    const handlePause = () => {
+    const handlePause = (data: { position: number }) => {
       console.log('Viewer: Received pause command');
       if (playerRef.current && playerRef.current.pauseVideo) {
         ignoreNextStateChange.current = true;
         playerRef.current.pauseVideo();
+        playerRef.current.seekTo(data.position, true);
       }
     };
 
@@ -181,15 +192,11 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       console.log('Viewer: Received seek command:', time);
       if (playerRef.current && playerRef.current.seekTo) {
         ignoreNextStateChange.current = true;
-        // Clear any pending sync
-        if (syncTimeoutRef.current) {
-          clearTimeout(syncTimeoutRef.current);
-        }
-
-        // Single seek with buffering
         playerRef.current.seekTo(time, true);
-      } else {
-        console.error('Viewer: Player not ready for seek');
+
+        // Update sync reference
+        playStartTime.current = Date.now();
+        playStartPosition.current = time;
       }
     };
 
@@ -201,146 +208,102 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
     };
 
     // Always set up listeners, but only act on them if not host
-    socket.on('play', () => {
-      if (!isHost) handlePlay();
+    socket.on('play', (data) => {
+      if (!isHost) handlePlay(data);
     });
 
-    socket.on('pause', () => {
-      if (!isHost) handlePause();
+    socket.on('pause', (data) => {
+      if (!isHost) handlePause(data);
     });
 
     socket.on('seek', (time: number) => {
-      if (!isHost) {
-        console.log('Non-host received seek:', time);
-        handleSeek(time);
-      }
+      if (!isHost) handleSeek(time);
     });
 
     socket.on('video-changed', (videoId: string) => {
       if (!isHost) handleVideoChange(videoId);
     });
 
-    // Add sync-video listener for viewers with debouncing
-    let syncTimeout: NodeJS.Timeout | null = null;
-    socket.on('sync-video', (state: VideoState) => {
-      if (!isHost && playerRef.current && playerRef.current.seekTo) {
-        // Clear any pending sync
-        if (syncTimeout) {
-          clearTimeout(syncTimeout);
-        }
-
-        // Debounce sync to prevent lag (longer delay for mobile)
-        const syncDelay = isMobile.current ? 1000 : 500;
-        syncTimeout = setTimeout(() => {
-          if (!playerRef.current) return;
-
-          const currentTime = playerRef.current.getCurrentTime();
-          const timeDiff = Math.abs(currentTime - state.currentTime);
-
-          // Only sync if time difference is greater than 3 seconds (5 for mobile)
-          const syncThreshold = isMobile.current ? 5 : 3;
-          if (timeDiff > syncThreshold) {
-            console.log('Viewer: Syncing time:', state.currentTime);
-            playerRef.current.seekTo(state.currentTime, true);
-          }
-
-          // Sync play state (skip on iOS to prevent lag)
-          if (!isIOS.current) {
-            const playerState = playerRef.current.getPlayerState();
-            if (state.isPlaying && playerState !== 1) {
-              playerRef.current.playVideo();
-            } else if (!state.isPlaying && playerState === 1) {
-              playerRef.current.pauseVideo();
-            }
-          }
-        }, syncDelay); // Wait before syncing to batch updates
-      }
-    });
+    // Remove the old sync-video listener - we'll use a better approach
 
     return () => {
       socket.off('play');
       socket.off('pause');
       socket.off('seek');
       socket.off('video-changed');
-      socket.off('sync-video');
     };
   }, [isHost, videoState.currentTime]);
 
-  // Monitor for seeks and sync time for host
+  // New improved sync mechanism using playback rate adjustment
   useEffect(() => {
-    if (!isHost) return;
+    if (!isHost || !playerRef.current) return;
 
     let previousTime = 0;
-    let checkCount = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let socket: any = null;
+    const socket = getSocket();
 
-    // Try to get socket, handle if not ready
-    try {
-      socket = getSocket();
-    } catch {
-      console.log('Socket not ready yet, will retry...');
-    }
+    const checkForSeek = setInterval(() => {
+      if (!playerRef.current || !playerRef.current.getCurrentTime) return;
 
-    const interval = setInterval(() => {
-      // Ensure socket is available
-      if (!socket) {
-        try {
-          socket = getSocket();
-          console.log('Socket connected!');
-        } catch {
-          console.log('Still waiting for socket...');
-          return;
-        }
+      const currentTime = playerRef.current.getCurrentTime();
+
+      // Detect manual seeks (more than 2 seconds jump)
+      if (previousTime > 0 && Math.abs(currentTime - previousTime) > 2) {
+        console.log('Host: Seek detected, broadcasting...');
+        socket.emit('seek-video', { roomId, time: currentTime });
+
+        // Update sync reference
+        playStartTime.current = Date.now();
+        playStartPosition.current = currentTime;
       }
 
-      if (!playerRef.current || !playerRef.current.getCurrentTime) {
-        return;
-      }
+      previousTime = currentTime;
+    }, 500); // Check every 500ms for responsive seek detection
 
-      try {
-        const currentTime = playerRef.current.getCurrentTime();
-        const playerState = playerRef.current.getPlayerState ? playerRef.current.getPlayerState() : -1;
-        const isPlaying = playerState === 1; // YT.PlayerState.PLAYING = 1
+    return () => clearInterval(checkForSeek);
+  }, [isHost, roomId]);
 
-        // Check for seek (time jump) - only after we have a previous time
-        if (previousTime > 0) {
-          const timeDiff = Math.abs(currentTime - previousTime);
+  // Viewer sync using playback rate adjustment (smooth catch-up)
+  useEffect(() => {
+    if (isHost || !playerRef.current) return;
 
-          // If time jumped more than 3 seconds in 2 second interval, it's a seek
-          if (timeDiff > 3) {
-            console.log('Host: SEEK DETECTED! Emitting to server...', {
-              currentTime,
-              previousTime,
-              diff: timeDiff,
-              roomId
-            });
+    const syncWithHost = () => {
+      if (!playerRef.current || !playerRef.current.getCurrentTime) return;
+      if (playStartTime.current === 0) return; // No sync reference yet
 
-            // Emit seek to server
-            socket.emit('seek-video', { roomId, time: currentTime });
-          }
+      const player = playerRef.current;
+      const playerState = player.getPlayerState();
+
+      // Only sync when playing
+      if (playerState !== 1) return;
+
+      const currentTime = player.getCurrentTime();
+      const elapsed = (Date.now() - playStartTime.current) / 1000;
+      const expectedPosition = playStartPosition.current + elapsed;
+      const drift = currentTime - expectedPosition;
+
+      // Adjust playback rate to smoothly sync
+      if (Math.abs(drift) > 0.2) { // Only adjust if drift > 0.2 seconds
+        if (drift > 0) {
+          // We're ahead, slow down
+          player.setPlaybackRate(0.9);
+          setTimeout(() => {
+            if (player.setPlaybackRate) player.setPlaybackRate(1.0);
+          }, Math.abs(drift) * 1000);
+        } else {
+          // We're behind, speed up
+          player.setPlaybackRate(1.1);
+          setTimeout(() => {
+            if (player.setPlaybackRate) player.setPlaybackRate(1.0);
+          }, Math.abs(drift) * 1000);
         }
-
-        // Always update previous time
-        previousTime = currentTime;
-
-        // Send periodic updates less frequently (every 10 seconds for mobile, 5 for desktop)
-        const updateInterval = isMobile.current ? 10 : 5;
-        if (checkCount++ % updateInterval === 0 && currentTime > 0 && isPlaying) {
-          socket.emit('video-state-change', {
-            roomId,
-            state: { currentTime, isPlaying }
-          });
-        }
-      } catch (error) {
-        console.error('Host: Error in monitoring:', error);
+        console.log(`Viewer: Adjusting sync, drift: ${drift.toFixed(2)}s`);
       }
-    }, 2000); // Check every 2 seconds instead of 1
-
-    return () => {
-      console.log('Host: Stopping monitoring');
-      clearInterval(interval);
     };
+
+    // Run sync check every 2 seconds
+    const syncInterval = setInterval(syncWithHost, 2000);
+
+    return () => clearInterval(syncInterval);
   }, [isHost, roomId]);
 
 
