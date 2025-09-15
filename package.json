@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node server/server.js",
-    "build": "next build --turbopack",
+    "build": "next build",
+    "build:cloudflare": "next build && npx @cloudflare/next-on-pages",
     "start": "NODE_ENV=production node server/server.js",
     "lint": "eslint"
   },
