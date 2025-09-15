@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "build": "echo 'No build required for Node.js server'"
   },
   "dependencies": {
     "socket.io": "^4.7.2"
