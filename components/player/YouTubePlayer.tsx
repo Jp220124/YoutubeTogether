@@ -29,23 +29,32 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const ignoreNextStateChange = useRef(false);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMobile = useRef(false);
+  const isIOS = useRef(false);
 
   // Remove console log to reduce noise
   // console.log('YouTubePlayer render:', { videoState, isHost, isReady });
 
   // Load YouTube IFrame API
   useEffect(() => {
-    if (typeof window !== 'undefined' && !window.YT) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    if (typeof window !== 'undefined') {
+      // Detect mobile and iOS
+      const userAgent = navigator.userAgent.toLowerCase();
+      isMobile.current = /mobile|android|iphone|ipad|ipod/.test(userAgent);
+      isIOS.current = /iphone|ipad|ipod/.test(userAgent);
 
-      window.onYouTubeIframeAPIReady = () => {
+      if (!window.YT) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+        window.onYouTubeIframeAPIReady = () => {
+          setIsReady(true);
+        };
+      } else {
         setIsReady(true);
-      };
-    } else if (window.YT) {
-      setIsReady(true);
+      }
     }
   }, []);
 
@@ -73,6 +82,9 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           origin: window.location.origin,
           fs: 0, // Disable YouTube's fullscreen (we use custom)
           playsinline: 1,
+          enablejsapi: 1,
+          iv_load_policy: 3, // Hide annotations
+          cc_load_policy: 0, // Hide closed captions by default
         },
         events: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +117,11 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
             }
 
             if (!isHost) return;
+
+            // Skip buffering state changes on mobile to reduce lag
+            if (isMobile.current && event.data === window.YT.PlayerState.BUFFERING) {
+              return;
+            }
 
             const socket = getSocket();
 
@@ -149,12 +166,6 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       if (playerRef.current && playerRef.current.playVideo) {
         ignoreNextStateChange.current = true;
         playerRef.current.playVideo();
-        // Also sync the time in case of drift
-        if (videoState.currentTime > 0) {
-          setTimeout(() => {
-            playerRef.current.seekTo(videoState.currentTime, true);
-          }, 100);
-        }
       }
     };
 
@@ -168,23 +179,15 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
 
     const handleSeek = (time: number) => {
       console.log('Viewer: Received seek command:', time);
-      ignoreNextStateChange.current = true;
       if (playerRef.current && playerRef.current.seekTo) {
+        ignoreNextStateChange.current = true;
         // Clear any pending sync
         if (syncTimeoutRef.current) {
           clearTimeout(syncTimeoutRef.current);
         }
 
-        // Immediate seek
+        // Single seek with buffering
         playerRef.current.seekTo(time, true);
-
-        // Force sync after a short delay to ensure accuracy
-        syncTimeoutRef.current = setTimeout(() => {
-          if (playerRef.current && playerRef.current.seekTo) {
-            playerRef.current.seekTo(time, true);
-            console.log('Viewer: Force sync to:', time);
-          }
-        }, 100);
       } else {
         console.error('Viewer: Player not ready for seek');
       }
@@ -217,20 +220,40 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       if (!isHost) handleVideoChange(videoId);
     });
 
-    // Add sync-video listener for viewers
+    // Add sync-video listener for viewers with debouncing
+    let syncTimeout: NodeJS.Timeout | null = null;
     socket.on('sync-video', (state: VideoState) => {
       if (!isHost && playerRef.current && playerRef.current.seekTo) {
-        console.log('Viewer: Syncing to state:', state);
-        // Sync time
-        if (Math.abs(playerRef.current.getCurrentTime() - state.currentTime) > 1) {
-          playerRef.current.seekTo(state.currentTime, true);
+        // Clear any pending sync
+        if (syncTimeout) {
+          clearTimeout(syncTimeout);
         }
-        // Sync play state
-        if (state.isPlaying && playerRef.current.getPlayerState() !== 1) {
-          playerRef.current.playVideo();
-        } else if (!state.isPlaying && playerRef.current.getPlayerState() === 1) {
-          playerRef.current.pauseVideo();
-        }
+
+        // Debounce sync to prevent lag (longer delay for mobile)
+        const syncDelay = isMobile.current ? 1000 : 500;
+        syncTimeout = setTimeout(() => {
+          if (!playerRef.current) return;
+
+          const currentTime = playerRef.current.getCurrentTime();
+          const timeDiff = Math.abs(currentTime - state.currentTime);
+
+          // Only sync if time difference is greater than 3 seconds (5 for mobile)
+          const syncThreshold = isMobile.current ? 5 : 3;
+          if (timeDiff > syncThreshold) {
+            console.log('Viewer: Syncing time:', state.currentTime);
+            playerRef.current.seekTo(state.currentTime, true);
+          }
+
+          // Sync play state (skip on iOS to prevent lag)
+          if (!isIOS.current) {
+            const playerState = playerRef.current.getPlayerState();
+            if (state.isPlaying && playerState !== 1) {
+              playerRef.current.playVideo();
+            } else if (!state.isPlaying && playerState === 1) {
+              playerRef.current.pauseVideo();
+            }
+          }
+        }, syncDelay); // Wait before syncing to batch updates
       }
     });
 
@@ -271,27 +294,21 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         }
       }
 
-      if (!playerRef.current) {
-        console.log('Host: Player not ready yet');
+      if (!playerRef.current || !playerRef.current.getCurrentTime) {
         return;
       }
 
       try {
-        const currentTime = playerRef.current.getCurrentTime ? playerRef.current.getCurrentTime() : 0;
+        const currentTime = playerRef.current.getCurrentTime();
         const playerState = playerRef.current.getPlayerState ? playerRef.current.getPlayerState() : -1;
         const isPlaying = playerState === 1; // YT.PlayerState.PLAYING = 1
-
-        // Reduce console logging
-        if (checkCount++ % 10 === 0) {
-          console.log(`Host: Sync check #${checkCount}`, { currentTime, isPlaying });
-        }
 
         // Check for seek (time jump) - only after we have a previous time
         if (previousTime > 0) {
           const timeDiff = Math.abs(currentTime - previousTime);
 
-          // If time jumped more than 2 seconds in 1 second interval, it's a seek
-          if (timeDiff > 2) {
+          // If time jumped more than 3 seconds in 2 second interval, it's a seek
+          if (timeDiff > 3) {
             console.log('Host: SEEK DETECTED! Emitting to server...', {
               currentTime,
               previousTime,
@@ -307,9 +324,9 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         // Always update previous time
         previousTime = currentTime;
 
-        // Send periodic updates
-        if (currentTime > 0) {
-          socket.emit('time-update', { roomId, currentTime });
+        // Send periodic updates less frequently (every 10 seconds for mobile, 5 for desktop)
+        const updateInterval = isMobile.current ? 10 : 5;
+        if (checkCount++ % updateInterval === 0 && currentTime > 0 && isPlaying) {
           socket.emit('video-state-change', {
             roomId,
             state: { currentTime, isPlaying }
@@ -318,7 +335,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       } catch (error) {
         console.error('Host: Error in monitoring:', error);
       }
-    }, 1000); // Check every second
+    }, 2000); // Check every 2 seconds instead of 1
 
     return () => {
       console.log('Host: Stopping monitoring');

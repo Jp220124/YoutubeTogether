@@ -6,6 +6,7 @@ const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 
 // Room management
 const rooms = new Map();
+const lastSyncTime = new Map(); // Track last sync time per room
 // Map to track user sessions for host persistence
 const userSessions = new Map(); // Maps sessionId -> { roomId, isHost }
 
@@ -119,7 +120,16 @@ io.on('connection', (socket) => {
     const room = rooms.get(roomId);
     if (room && room.host === socket.id) {
       room.videoState = { ...room.videoState, ...state, lastUpdate: Date.now() };
-      socket.to(roomId).emit('sync-video', room.videoState);
+
+      // Rate limit sync broadcasts to prevent lag
+      const lastSync = lastSyncTime.get(roomId) || 0;
+      const now = Date.now();
+
+      // Only broadcast sync if at least 2 seconds have passed since last sync
+      if (now - lastSync > 2000) {
+        socket.to(roomId).emit('sync-video', room.videoState);
+        lastSyncTime.set(roomId, now);
+      }
     }
   });
 
@@ -154,14 +164,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Host sends periodic time updates
-  socket.on('time-update', ({ roomId, currentTime }) => {
-    const room = rooms.get(roomId);
-    if (room && room.host === socket.id) {
-      room.videoState.currentTime = currentTime;
-      room.videoState.lastUpdate = Date.now();
-    }
-  });
+  // Host sends periodic time updates (removed - no longer needed)
+  // We'll rely on video-state-change for updates
 
   socket.on('change-video', ({ roomId, videoId }) => {
     console.log('Change video request:', { roomId, videoId, hostId: socket.id });
@@ -220,6 +224,7 @@ io.on('connection', (socket) => {
         // Clean up empty rooms
         if (room.users.size === 0) {
           rooms.delete(roomId);
+          lastSyncTime.delete(roomId); // Clean up sync tracking
         } else {
           io.to(roomId).emit('user-left', socket.id);
         }
