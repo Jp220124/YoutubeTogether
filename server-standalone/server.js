@@ -11,7 +11,11 @@ const httpServer = createServer();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: CLIENT_URL,
+    origin: [
+      'http://localhost:3000',
+      'https://youtubetogether.pages.dev',
+      CLIENT_URL
+    ],
     methods: ['GET', 'POST'],
     credentials: true
   }
