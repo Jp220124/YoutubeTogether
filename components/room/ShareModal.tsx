@@ -51,52 +51,52 @@ export default function ShareModal({ roomId, isOpen, onClose }: ShareModalProps)
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.9, opacity: 0 }}
             transition={{ type: "spring", damping: 20 }}
-            className="bg-white rounded-3xl p-8 max-w-md w-full premium-shadow-lg"
+            className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 max-w-md w-full premium-shadow-lg mx-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-800">Share Room</h2>
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
+              <h2 className="text-xl sm:text-2xl font-bold text-gray-800">Share Room</h2>
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-gray-100 rounded-xl transition-all"
               >
-                <Icons.X className="w-5 h-5 text-gray-500" />
+                <Icons.X className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
               </button>
             </div>
 
             <div className="space-y-4">
               {/* Room Code Display */}
-              <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl text-center">
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 sm:p-6 rounded-xl sm:rounded-2xl text-center">
                 <p className="text-sm text-gray-600 mb-2">Room Code</p>
-                <div className="text-3xl font-mono font-bold text-purple-700 tracking-wider">
+                <div className="text-2xl sm:text-3xl font-mono font-bold text-purple-700 tracking-wider">
                   {roomId}
                 </div>
               </div>
 
               {/* Copy Link */}
-              <div className="bg-gray-50 p-4 rounded-xl">
+              <div className="bg-gray-50 p-3 sm:p-4 rounded-lg sm:rounded-xl">
                 <p className="text-xs text-gray-600 mb-2 font-medium">Share Link</p>
                 <div className="flex items-center gap-2">
                   <input
                     type="text"
                     value={roomUrl}
                     readOnly
-                    className="flex-1 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 font-mono"
+                    className="flex-1 px-2 sm:px-3 py-1.5 sm:py-2 bg-white border border-gray-200 rounded-lg text-xs sm:text-sm text-gray-700 font-mono"
                   />
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={copyLink}
-                    className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium text-sm premium-shadow flex items-center gap-2"
+                    className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium text-xs sm:text-sm premium-shadow flex items-center gap-1 sm:gap-2"
                   >
                     {copied ? (
                       <>
-                        <Icons.Check className="w-4 h-4" />
+                        <Icons.Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         Copied!
                       </>
                     ) : (
                       <>
-                        <Icons.Copy className="w-4 h-4" />
+                        <Icons.Copy className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         Copy
                       </>
                     )}
@@ -112,9 +112,9 @@ export default function ShareModal({ roomId, isOpen, onClose }: ShareModalProps)
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={shareViaWhatsApp}
-                    className="p-4 bg-green-50 hover:bg-green-100 rounded-xl transition-all group"
+                    className="p-3 sm:p-4 bg-green-50 hover:bg-green-100 rounded-lg sm:rounded-xl transition-all group"
                   >
-                    <Icons.MessageCircle className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                    <Icons.MessageCircle className="w-5 h-5 sm:w-6 sm:h-6 text-green-600 mx-auto mb-1 sm:mb-2" />
                     <p className="text-xs text-gray-700 font-medium">WhatsApp</p>
                   </motion.button>
 
@@ -122,9 +122,9 @@ export default function ShareModal({ roomId, isOpen, onClose }: ShareModalProps)
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={shareViaEmail}
-                    className="p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all group"
+                    className="p-3 sm:p-4 bg-blue-50 hover:bg-blue-100 rounded-lg sm:rounded-xl transition-all group"
                   >
-                    <Icons.Mail className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                    <Icons.Mail className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600 mx-auto mb-1 sm:mb-2" />
                     <p className="text-xs text-gray-700 font-medium">Email</p>
                   </motion.button>
 
@@ -132,18 +132,18 @@ export default function ShareModal({ roomId, isOpen, onClose }: ShareModalProps)
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={shareViaTwitter}
-                    className="p-4 bg-sky-50 hover:bg-sky-100 rounded-xl transition-all group"
+                    className="p-3 sm:p-4 bg-sky-50 hover:bg-sky-100 rounded-lg sm:rounded-xl transition-all group"
                   >
-                    <Icons.Twitter className="w-6 h-6 text-sky-600 mx-auto mb-2" />
+                    <Icons.Twitter className="w-5 h-5 sm:w-6 sm:h-6 text-sky-600 mx-auto mb-1 sm:mb-2" />
                     <p className="text-xs text-gray-700 font-medium">Twitter</p>
                   </motion.button>
                 </div>
               </div>
 
               {/* Instructions */}
-              <div className="bg-amber-50 p-4 rounded-xl">
+              <div className="bg-amber-50 p-3 sm:p-4 rounded-lg sm:rounded-xl">
                 <div className="flex gap-3">
-                  <Icons.Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <Icons.Info className="w-4 h-4 sm:w-5 sm:h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-sm text-amber-900 font-medium mb-1">How to join</p>
                     <p className="text-xs text-amber-700">

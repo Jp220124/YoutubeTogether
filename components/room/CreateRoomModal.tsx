@@ -55,28 +55,28 @@ export default function CreateRoomModal({ onClose }: CreateRoomModalProps) {
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
         transition={{ type: "spring", damping: 25, stiffness: 500 }}
-        className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl relative"
+        className="bg-white rounded-2xl sm:rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl relative mx-4"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 transition"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 text-gray-400 hover:text-gray-600 transition"
         >
-          <Icons.X className="w-6 h-6" />
+          <Icons.X className="w-5 h-5 sm:w-6 sm:h-6" />
         </button>
 
         {/* Header */}
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-r from-purple-400 to-pink-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Icons.Plus className="w-8 h-8 text-white" />
+        <div className="text-center mb-6 sm:mb-8">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-r from-purple-400 to-pink-400 rounded-xl sm:rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+            <Icons.Plus className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
           </div>
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">Create a Room</h2>
-          <p className="text-gray-600">Start watching YouTube videos with friends</p>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Create a Room</h2>
+          <p className="text-sm sm:text-base text-gray-600">Start watching YouTube videos with friends</p>
         </div>
 
         {/* Form */}
-        <div className="space-y-5">
+        <div className="space-y-4 sm:space-y-5">
           <div>
             <label className="block text-gray-700 text-sm font-semibold mb-2">
               Your Name
@@ -88,7 +88,7 @@ export default function CreateRoomModal({ onClose }: CreateRoomModalProps) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Enter your name"
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:bg-white transition"
+                className="w-full pl-11 sm:pl-12 pr-3 sm:pr-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-gray-800 placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:bg-white transition"
               />
             </div>
           </div>
@@ -104,7 +104,7 @@ export default function CreateRoomModal({ onClose }: CreateRoomModalProps) {
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
                 placeholder="https://youtube.com/watch?v=..."
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:bg-white transition"
+                className="w-full pl-11 sm:pl-12 pr-3 sm:pr-4 py-2.5 sm:py-3 bg-gray-50 border border-gray-200 rounded-lg sm:rounded-xl text-sm sm:text-base text-gray-800 placeholder-gray-400 focus:outline-none focus:border-purple-400 focus:bg-white transition"
               />
             </div>
             <p className="text-xs text-gray-500 mt-1">Add a video now or paste one later in the room</p>
@@ -115,7 +115,7 @@ export default function CreateRoomModal({ onClose }: CreateRoomModalProps) {
             whileTap={{ scale: 0.98 }}
             onClick={handleCreateRoom}
             disabled={isCreating}
-            className="w-full py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl hover:from-purple-600 hover:to-pink-600 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+            className="w-full py-3 sm:py-4 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg sm:rounded-xl hover:from-purple-600 hover:to-pink-600 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
             {isCreating ? (
               <span className="flex items-center justify-center gap-2">
@@ -123,13 +123,13 @@ export default function CreateRoomModal({ onClose }: CreateRoomModalProps) {
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                 >
-                  <Icons.Loader className="w-5 h-5" />
+                  <Icons.Loader className="w-4 h-4 sm:w-5 sm:h-5" />
                 </motion.div>
                 Creating Room...
               </span>
             ) : (
               <span className="flex items-center justify-center gap-2">
-                <Icons.Video className="w-5 h-5" />
+                <Icons.Video className="w-4 h-4 sm:w-5 sm:h-5" />
                 Create Room
               </span>
             )}
@@ -137,18 +137,18 @@ export default function CreateRoomModal({ onClose }: CreateRoomModalProps) {
         </div>
 
         {/* Features */}
-        <div className="mt-8 pt-6 border-t border-gray-100">
+        <div className="mt-6 sm:mt-8 pt-4 sm:pt-6 border-t border-gray-100">
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
-              <Icons.Users className="w-6 h-6 text-purple-500 mx-auto mb-2" />
+              <Icons.Users className="w-5 h-5 sm:w-6 sm:h-6 text-purple-500 mx-auto mb-1.5 sm:mb-2" />
               <p className="text-xs text-gray-600">Unlimited Users</p>
             </div>
             <div>
-              <Icons.Lock className="w-6 h-6 text-purple-500 mx-auto mb-2" />
+              <Icons.Lock className="w-5 h-5 sm:w-6 sm:h-6 text-purple-500 mx-auto mb-1.5 sm:mb-2" />
               <p className="text-xs text-gray-600">Private & Secure</p>
             </div>
             <div>
-              <Icons.Zap className="w-6 h-6 text-purple-500 mx-auto mb-2" />
+              <Icons.Zap className="w-5 h-5 sm:w-6 sm:h-6 text-purple-500 mx-auto mb-1.5 sm:mb-2" />
               <p className="text-xs text-gray-600">Real-time Sync</p>
             </div>
           </div>

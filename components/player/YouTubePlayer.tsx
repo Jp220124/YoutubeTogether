@@ -360,7 +360,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
   }, []);
 
   return (
-    <div className="relative w-full bg-black rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: '16/9' }}>
+    <div className="relative w-full bg-black rounded-lg sm:rounded-xl lg:rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: '16/9' }}>
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black z-10">
           <div className="text-white flex flex-col items-center gap-3">
@@ -377,27 +377,29 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           {/* Fullscreen button for everyone */}
           <button
             onClick={toggleFullscreen}
-            className="absolute top-4 right-4 p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg pointer-events-auto transition-all hover:scale-110 group"
+            className="absolute top-2 right-2 sm:top-4 sm:right-4 p-2 sm:p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg pointer-events-auto transition-all hover:scale-110 group"
             title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
           >
             {isFullscreen ? (
-              <Icons.Minimize className="w-5 h-5" />
+              <Icons.Minimize className="w-4 h-4 sm:w-5 sm:h-5" />
             ) : (
-              <Icons.Maximize className="w-5 h-5" />
+              <Icons.Maximize className="w-4 h-4 sm:w-5 sm:h-5" />
             )}
           </button>
 
           {/* Host/Viewer indicator */}
-          <div className="absolute bottom-4 left-4 bg-black/80 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg flex items-center gap-2">
+          <div className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4 bg-black/80 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium shadow-lg flex items-center gap-1.5 sm:gap-2">
             {isHost ? (
               <>
-                <Icons.Award className="w-4 h-4 text-yellow-400" />
-                <span>You have control</span>
+                <Icons.Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+                <span className="hidden sm:inline">You have control</span>
+                <span className="sm:hidden">Host</span>
               </>
             ) : (
               <>
-                <Icons.Lock className="w-4 h-4 text-gray-400" />
-                <span>Host controls playback</span>
+                <Icons.Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400" />
+                <span className="hidden sm:inline">Host controls playback</span>
+                <span className="sm:hidden">Viewer</span>
               </>
             )}
           </div>

@@ -39,7 +39,7 @@ export default function Room() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [showCopied, setShowCopied] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // Start closed on mobile
 
   useEffect(() => {
     const socket = initSocket();
@@ -225,35 +225,35 @@ export default function Room() {
         animate={{ y: 0 }}
         className="glass-effect border-b border-white/50 sticky top-0 z-50 premium-shadow"
       >
-        <div className="px-8 py-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
+        <div className="px-3 sm:px-6 lg:px-8 py-3 sm:py-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
+            <div className="flex items-center gap-3 sm:gap-6 w-full sm:w-auto">
               <button
                 onClick={() => router.push('/')}
-                className="p-2 hover:bg-gray-100 rounded-xl transition-all duration-200 group"
+                className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-xl transition-all duration-200 group"
               >
-                <Icons.ArrowLeft className="w-5 h-5 text-gray-600 group-hover:text-gray-900" />
+                <Icons.ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600 group-hover:text-gray-900" />
               </button>
 
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-br from-red-500 to-pink-500 rounded-xl shadow-lg">
-                  <Icons.Youtube className="w-6 h-6 text-white" />
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-gradient-to-br from-red-500 to-pink-500 rounded-xl shadow-lg">
+                  <Icons.Youtube className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
                 </div>
-                <div>
-                  <span className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                <div className="hidden sm:block">
+                  <span className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
                     WatchTube
                   </span>
                   <p className="text-xs text-gray-500">Premium Experience</p>
                 </div>
               </div>
 
-              <div className="h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent" />
+              <div className="hidden lg:block h-8 w-px bg-gradient-to-b from-transparent via-gray-300 to-transparent" />
 
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl">
-                  <Icons.Hash className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm text-gray-600 font-medium">Room</span>
-                  <span className="font-mono font-bold text-purple-700 text-lg tracking-wide bg-white px-3 py-1 rounded-lg shadow-sm">
+              <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+                <div className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl sm:rounded-2xl flex-1 sm:flex-initial">
+                  <Icons.Hash className="w-3 h-3 sm:w-4 sm:h-4 text-purple-600" />
+                  <span className="hidden sm:inline text-sm text-gray-600 font-medium">Room</span>
+                  <span className="font-mono font-bold text-purple-700 text-sm sm:text-lg tracking-wide bg-white px-2 sm:px-3 py-0.5 sm:py-1 rounded-lg shadow-sm">
                     {roomId}
                   </span>
                 </div>
@@ -262,43 +262,43 @@ export default function Room() {
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={() => setShowShareModal(true)}
-                  className="px-4 py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold text-sm flex items-center gap-2 premium-shadow hover:from-purple-600 hover:to-pink-600 transition-all"
+                  className="px-3 sm:px-4 py-2 sm:py-2.5 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-semibold text-xs sm:text-sm flex items-center gap-1 sm:gap-2 premium-shadow hover:from-purple-600 hover:to-pink-600 transition-all"
                 >
-                  <Icons.Share2 className="w-4 h-4" />
-                  <span>Share</span>
+                  <Icons.Share2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span className="hidden sm:inline">Share</span>
                 </motion.button>
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4 w-full sm:w-auto justify-between sm:justify-end">
               {currentUser?.isHost ? (
                 <motion.div
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="flex items-center gap-3 px-5 py-2.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-2xl shadow-lg"
+                  className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-xl sm:rounded-2xl shadow-lg"
                 >
-                  <div className="p-1.5 bg-white/20 rounded-lg">
-                    <Icons.Award className="w-4 h-4" />
+                  <div className="p-1 sm:p-1.5 bg-white/20 rounded-lg">
+                    <Icons.Award className="w-3 h-3 sm:w-4 sm:h-4" />
                   </div>
-                  <span className="font-semibold">Host Controls</span>
+                  <span className="text-sm sm:text-base font-semibold">Host</span>
                 </motion.div>
               ) : (
-                <div className="flex items-center gap-3 px-5 py-2.5 bg-white/80 backdrop-blur text-gray-700 rounded-2xl shadow-md border border-gray-200">
-                  <Icons.User className="w-4 h-4" />
-                  <span className="font-medium">Viewer Mode</span>
+                <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-2.5 bg-white/80 backdrop-blur text-gray-700 rounded-xl sm:rounded-2xl shadow-md border border-gray-200">
+                  <Icons.User className="w-3 h-3 sm:w-4 sm:h-4" />
+                  <span className="text-sm sm:text-base font-medium">Viewer</span>
                 </div>
               )}
 
-              <div className="flex items-center gap-2 px-4 py-2.5 bg-white rounded-2xl shadow-md">
+              <div className="hidden sm:flex items-center gap-2 px-4 py-2.5 bg-white rounded-2xl shadow-md">
                 <div className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse`} />
                 <span className="text-sm font-medium text-gray-700">{isConnected ? 'Connected' : 'Reconnecting...'}</span>
               </div>
 
               <button
                 onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="p-2.5 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200"
+                className="p-2 sm:p-2.5 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-200 lg:hidden"
               >
-                <Icons.MessageSquare className="w-5 h-5 text-gray-700" />
+                {sidebarOpen ? <Icons.X className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" /> : <Icons.MessageSquare className="w-4 h-4 sm:w-5 sm:h-5 text-gray-700" />}
               </button>
             </div>
           </div>
@@ -306,9 +306,9 @@ export default function Room() {
       </motion.header>
 
       {/* Main Content Area */}
-      <div className="flex h-[calc(100vh-88px)]">
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-60px)] sm:h-[calc(100vh-88px)] relative">
         {/* Video Section with Premium Styling */}
-        <div className="flex-1 flex flex-col p-8">
+        <div className="flex-1 flex flex-col p-3 sm:p-6 lg:p-8 overflow-y-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -329,18 +329,18 @@ export default function Room() {
                 </div>
               </div>
             ) : (
-              <div className="h-full bg-white/90 backdrop-blur-xl rounded-3xl p-12 flex items-center justify-center border-2 border-dashed border-purple-200 shadow-xl">
+              <div className="h-full bg-white/90 backdrop-blur-xl rounded-3xl p-6 sm:p-12 flex items-center justify-center border-2 border-dashed border-purple-200 shadow-xl">
                 <div className="text-center max-w-md">
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: "spring", duration: 0.5 }}
-                    className="w-32 h-32 bg-gradient-to-br from-purple-400 via-pink-400 to-red-400 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl"
+                    className="w-24 h-24 sm:w-32 sm:h-32 bg-gradient-to-br from-purple-400 via-pink-400 to-red-400 rounded-3xl flex items-center justify-center mx-auto mb-6 sm:mb-8 shadow-2xl"
                   >
-                    <Icons.PlayCircle className="w-16 h-16 text-white" />
+                    <Icons.PlayCircle className="w-12 h-12 sm:w-16 sm:h-16 text-white" />
                   </motion.div>
-                  <h3 className="text-3xl font-bold text-gray-800 mb-4">Ready to Watch?</h3>
-                  <p className="text-lg text-gray-600 mb-8">
+                  <h3 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-3 sm:mb-4">Ready to Watch?</h3>
+                  <p className="text-base sm:text-lg text-gray-600 mb-6 sm:mb-8">
                     {currentUser?.isHost
                       ? "Add a YouTube URL below to start your watch party"
                       : "Waiting for the host to start the show"}
@@ -378,7 +378,7 @@ export default function Room() {
           )}
         </div>
 
-        {/* Premium Sidebar */}
+        {/* Premium Sidebar - Mobile Overlay / Desktop Fixed */}
         <AnimatePresence>
           {sidebarOpen && (
             <motion.div
@@ -386,8 +386,18 @@ export default function Room() {
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 400, opacity: 0 }}
               transition={{ type: "spring", damping: 25 }}
-              className="w-96 bg-white/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-gray-100"
+              className="fixed inset-y-0 right-0 z-40 w-full sm:w-96 bg-white/95 backdrop-blur-xl shadow-2xl flex flex-col border-l border-gray-100 lg:hidden"
             >
+              {/* Mobile Close Button */}
+              <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-800">Chat & Participants</h3>
+                <button
+                  onClick={() => setSidebarOpen(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <Icons.X className="w-5 h-5 text-gray-600" />
+                </button>
+              </div>
               {/* Users Section */}
               <div className="p-6 border-b border-gray-100">
                 <div className="flex items-center justify-between mb-4">
@@ -423,6 +433,42 @@ export default function Room() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Desktop Sidebar - Always visible on large screens */}
+        <div className="hidden lg:flex lg:w-96 bg-white/95 backdrop-blur-xl shadow-2xl flex-col border-l border-gray-100">
+          {/* Users Section */}
+          <div className="p-6 border-b border-gray-100">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-500 rounded-xl">
+                  <Icons.Users className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800">Participants</h3>
+                  <p className="text-sm text-gray-500">{currentRoom.users.length} online</p>
+                </div>
+              </div>
+              <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                Active
+              </span>
+            </div>
+            <UserList users={currentRoom.users} hostId={currentRoom.host} />
+          </div>
+
+          {/* Chat Section */}
+          <div className="flex-1 flex flex-col p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl">
+                <Icons.MessageCircle className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800">Live Chat</h3>
+                <p className="text-sm text-gray-500">Share your thoughts</p>
+              </div>
+            </div>
+            <Chat roomId={roomId} />
+          </div>
+        </div>
       </div>
 
       {/* Share Modal */}
