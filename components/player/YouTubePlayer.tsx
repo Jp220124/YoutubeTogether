@@ -84,7 +84,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           modestbranding: 1,
           rel: 0,
           origin: window.location.origin,
-          fs: isMobile.current && isHost ? 1 : 0, // Only enable fullscreen for mobile host
+          fs: isMobile.current ? 1 : 0, // Enable fullscreen for all mobile users (host and viewers)
           playsinline: 1,
           enablejsapi: 1,
           iv_load_policy: 3,
@@ -430,12 +430,16 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         </div>
       )}
 
-      {/* Mobile viewer overlay - Block interactions after first play */}
+      {/* Mobile viewer overlay - Block interactions but allow fullscreen */}
       {!isHost && isMobile.current && !isLoading && hasStartedOnce && (
         <div className="absolute inset-0 z-30 pointer-events-none">
-          {/* Transparent overlay to catch all clicks/touches */}
+          {/* Transparent overlay to catch clicks/touches except fullscreen button area */}
           <div
             className="absolute inset-0 pointer-events-auto bg-transparent"
+            style={{
+              // Cut out area for fullscreen button (bottom-right corner)
+              clipPath: 'polygon(0 0, 100% 0, 100% calc(100% - 50px), calc(100% - 50px) calc(100% - 50px), calc(100% - 50px) 100%, 0 100%)'
+            }}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -458,7 +462,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           <div className="absolute bottom-16 left-0 right-0 flex justify-center pointer-events-none">
             <div className="bg-black/80 text-white px-4 py-2 rounded-lg text-xs font-medium flex items-center">
               <Icons.Lock className="w-3 h-3 mr-1" />
-              Only host can control playback
+              Only host controls • Fullscreen available
             </div>
           </div>
         </div>
