@@ -41,6 +41,14 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const consecutivePlayEvents = useRef(0);
   const userInitiatedPause = useRef(false);
   const lastPauseWasBufferRelated = useRef(false);
+  // Store latest video state for viewers to use when clicking sync
+  const latestVideoState = useRef(videoState);
+
+  // Update latest video state ref whenever it changes
+  useEffect(() => {
+    latestVideoState.current = videoState;
+    console.log('[useEffect] Updated latestVideoState:', videoState);
+  }, [videoState]);
 
   // Detect mobile on mount and track user interactions
   useEffect(() => {
@@ -343,6 +351,25 @@ const YouTubePlayer = memo(function YouTubePlayer({
     }) => {
       console.log(`[Viewer] Received state-changed: ${data.state} at position ${data.position}`);
 
+      // Update latest video state for viewer
+      if (data.state === 'playing') {
+        latestVideoState.current = {
+          ...latestVideoState.current,
+          isPlaying: true,
+          currentTime: data.position,
+          lastUpdate: data.timestamp
+        };
+        console.log('[Viewer] Updated latestVideoState to playing:', latestVideoState.current);
+      } else if (data.state === 'paused') {
+        latestVideoState.current = {
+          ...latestVideoState.current,
+          isPlaying: false,
+          currentTime: data.position,
+          lastUpdate: data.timestamp
+        };
+        console.log('[Viewer] Updated latestVideoState to paused:', latestVideoState.current);
+      }
+
       if (!playerRef.current) {
         console.log('[Viewer] No player ref - cannot apply state change');
         return;
@@ -478,17 +505,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
         return;
       }
 
-      // For viewers, calculate and sync to actual current position
+      // For viewers, use the latest video state (which gets updated by socket events)
+      const currentState = latestVideoState.current;
+      console.log('[handleUserStart] VIEWER - Using latest video state:', currentState);
+
       let syncPosition = 0;
-      if (videoState.isPlaying && videoState.lastUpdate) {
+      if (currentState.isPlaying && currentState.lastUpdate) {
         // Video is playing - calculate current position based on time elapsed
-        const elapsedSeconds = (Date.now() - videoState.lastUpdate) / 1000;
-        syncPosition = (videoState.currentTime || 0) + elapsedSeconds;
+        const elapsedSeconds = (Date.now() - currentState.lastUpdate) / 1000;
+        syncPosition = (currentState.currentTime || 0) + elapsedSeconds;
         console.log(`[handleUserStart] VIEWER - Video is playing, syncing to calculated position: ${syncPosition}`);
-        console.log(`[handleUserStart] Calculation: ${videoState.currentTime} + ${elapsedSeconds} elapsed seconds`);
+        console.log(`[handleUserStart] Calculation: ${currentState.currentTime} + ${elapsedSeconds} elapsed seconds`);
       } else {
         // Video is paused - use the stored position
-        syncPosition = videoState.currentTime || 0;
+        syncPosition = currentState.currentTime || 0;
         console.log(`[handleUserStart] VIEWER - Video is paused, syncing to position: ${syncPosition}`);
       }
 
