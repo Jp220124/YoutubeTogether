@@ -4,16 +4,13 @@ import { useEffect, useRef, useState, memo } from 'react';
 import YouTube, { YouTubeEvent, YouTubeProps } from 'react-youtube';
 import { getSocket } from '@/lib/socket/socket';
 import * as Icons from 'react-feather';
+import type { VideoState } from '@/types';
 
 interface YouTubePlayerProps {
   videoId: string | null;
   roomId: string;
   isHost: boolean;
-  videoState: {
-    videoId: string | null;
-    isPlaying: boolean;
-    currentTime: number;
-  };
+  videoState: VideoState;
 }
 
 const YouTubePlayer = memo(function YouTubePlayer({
@@ -402,8 +399,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
                   }, 500);
                 }
               }
-            } catch (error) {
-              console.log('[Viewer] Play error:', error);
+            } catch {
+              console.log('[Viewer] Play error');
               setNeedsUserGesture(true);
             }
           };
@@ -513,7 +510,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       // Try playing with mute first if needed
       try {
         await playerRef.current.playVideo();
-      } catch (error) {
+      } catch {
         // Fallback to muted play
         playerRef.current.mute();
         isMuted.current = true;
