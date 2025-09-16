@@ -13,14 +13,29 @@ const httpServer = createServer();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: [
-      'http://localhost:3000',
-      'https://youtubetogether.pages.dev',
-      CLIENT_URL
-    ],
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+    origin: (origin, callback) => {
+      // Allow all origins in production for now
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://youtubetogether.pages.dev',
+        'https://youtube-together.pages.dev',
+        CLIENT_URL
+      ];
+
+      // Allow if origin is in list or if no origin (server-to-server)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // In production, be more permissive
+        console.log('Allowing origin:', origin);
+        callback(null, true);
+      }
+    },
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization']
+  },
+  transports: ['polling', 'websocket']
 });
 
 io.on('connection', (socket) => {
