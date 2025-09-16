@@ -125,6 +125,8 @@ export default function Room() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, username]);
 
+  // Removed - using simplified state broadcasting in YouTubePlayerSimple
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleVideoStateChange = (state: Partial<VideoState>) => {
     if (!currentUser?.isHost) return;
     const socket = getSocket();

@@ -137,8 +137,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
               isMuted.current = false;
             }
           }, 500);
-        }).catch((error: any) => {
-          console.log('[onReady] Viewer autoplay failed:', error);
+        }).catch(() => {
+          console.log('[onReady] Viewer autoplay failed');
           // Need user gesture
           setNeedsUserGesture(true);
         });
@@ -407,7 +407,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
       socket.off('state-changed');
       socket.off('video-changed');
     };
-  }, [isHost]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle user gesture to start playback
   const handleUserStart = async () => {
@@ -461,8 +462,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
       }
 
       setNeedsUserGesture(false);
-    } catch (error: any) {
-      console.error('Failed to start playback:', error);
+    } catch {
+      console.error('Failed to start playback');
     }
   };
 
