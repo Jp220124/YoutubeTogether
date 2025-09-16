@@ -37,6 +37,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const lastPlayTime = useRef(0);
   const lastPauseTime = useRef(0);
   const ignoreNextPause = useRef(false);
+  const pauseVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSeekTime = useRef(0);
 
   // Detect mobile on mount and track user interactions
   useEffect(() => {
@@ -152,21 +154,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
       case 2: // Paused
         // Ignore pause events that happen immediately after play (within 500ms)
-        if (ignoreNextPause.current) {
-          console.log('Ignoring transient pause after play');
-          return;
-        }
+        if (ignoreNextPause.current) return;
 
         // Ignore rapid pause events (within 200ms of last pause)
-        if (now - lastPauseTime.current < 200) {
-          console.log('Ignoring rapid pause event');
-          return;
-        }
+        if (now - lastPauseTime.current < 200) return;
 
-        // Ignore pause at the very beginning (likely autoplay block)
-        if (currentTime < 0.5 && now - lastPlayTime.current < 1000) {
-          console.log('Ignoring initial pause, likely autoplay block');
-          // Show click to start if this happens multiple times
+        // Stronger guards to prevent premature pause broadcasting
+        const PAUSE_SUPPRESS_MS = 1200; // window to suppress after play/seek
+        const MIN_POSITION_FOR_PAUSE = 1.0; // ignore near t=0
+
+        // Ignore pause right after play or seek
+        if (now - lastPlayTime.current < PAUSE_SUPPRESS_MS) return;
+        if (now - lastSeekTime.current < PAUSE_SUPPRESS_MS) return;
+        if (currentTime < MIN_POSITION_FOR_PAUSE) {
+          // treat as autoplay block noise
           playAttempts.current++;
           if (playAttempts.current > 2) {
             setNeedsUserGesture(true);
@@ -175,13 +176,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
           return;
         }
 
-        lastPauseTime.current = now;
-        socket.emit('host-state-change', {
-          roomId,
-          state: 'paused',
-          position: currentTime,
-          timestamp: now
-        });
+        // Verify the pause is stable for a short interval before emitting
+        if (pauseVerifyTimer.current) clearTimeout(pauseVerifyTimer.current);
+        pauseVerifyTimer.current = setTimeout(() => {
+          if (!playerRef.current) return;
+          const stillPaused = playerRef.current.getPlayerState && playerRef.current.getPlayerState() === 2;
+          if (!stillPaused) return;
+          lastPauseTime.current = Date.now();
+          socket.emit('host-state-change', {
+            roomId,
+            state: 'paused',
+            position: playerRef.current.getCurrentTime(),
+            timestamp: Date.now()
+          });
+        }, 300);
         break;
     }
   };
@@ -199,6 +207,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
       // Detect seeks (>2 second jump)
       if (Math.abs(currentPosition - lastPosition) > 2) {
         const socket = getSocket();
+        lastSeekTime.current = Date.now();
+        lastCommandTime.current = lastSeekTime.current;
         socket.emit('host-state-change', {
           roomId,
           state: 'seek',
