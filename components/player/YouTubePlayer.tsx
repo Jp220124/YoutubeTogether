@@ -208,23 +208,24 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         const elapsed = (Date.now() - data.timestamp) / 1000;
         const targetPosition = data.position + elapsed;
 
-        // Always seek to the correct position when play is commanded
+        // Seek to the correct position when play is commanded
         playerRef.current.seekTo(targetPosition, true);
 
-        // Store sync reference
+        // Store sync reference for continuous sync
         playStartTime.current = data.timestamp;
         playStartPosition.current = data.position;
 
         // Try to play
-        try {
-          playerRef.current.playVideo();
-        } catch (e) {
-          console.log('Play failed, need user gesture');
-          // On mobile, if autoplay fails, we need user gesture
-          if (isMobile.current && !isHost) {
-            setPendingPlay(true);
-            setNeedsUserGesture(true);
-          }
+        const playPromise = playerRef.current.playVideo();
+        if (playPromise !== undefined) {
+          playPromise.catch((e: any) => {
+            console.log('Play failed, need user gesture');
+            // On mobile, if autoplay fails, we need user gesture
+            if (isMobile.current && !isHost) {
+              setPendingPlay(true);
+              setNeedsUserGesture(true);
+            }
+          });
         }
       }
     };
@@ -313,15 +314,9 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
     return () => clearInterval(checkForSeek);
   }, [isHost, roomId]);
 
-  // Viewer sync - ONLY for desktop, disabled on mobile/iPad to prevent lag
+  // Viewer sync - Different strategies for desktop vs mobile
   useEffect(() => {
     if (isHost || !playerRef.current) return;
-
-    // COMPLETELY DISABLE continuous sync on mobile and iPad
-    if (isMobile.current) {
-      console.log('Mobile/iPad detected - continuous sync disabled');
-      return;
-    }
 
     const syncWithHost = () => {
       if (!playerRef.current || !playerRef.current.getCurrentTime) return;
@@ -338,8 +333,36 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       const expectedPosition = playStartPosition.current + elapsed;
       const drift = currentTime - expectedPosition;
 
-      // Desktop only: Use playback rate adjustment for smooth sync
-      if (Math.abs(drift) > 0.2) {
+      // Mobile: Try playback rate first, fallback to gentle seekTo if needed
+      if (isMobile.current) {
+        // Only adjust if drift is significant (>1 second)
+        if (Math.abs(drift) > 1) {
+          // Check if setPlaybackRate is available
+          if (player.setPlaybackRate) {
+            if (drift > 0) {
+              // We're ahead, slow down significantly
+              player.setPlaybackRate(0.75);
+              setTimeout(() => {
+                player.setPlaybackRate(1.0);
+              }, Math.min(Math.abs(drift) * 1000, 3000)); // Max 3 seconds adjustment
+            } else {
+              // We're behind, speed up significantly
+              player.setPlaybackRate(1.25);
+              setTimeout(() => {
+                player.setPlaybackRate(1.0);
+              }, Math.min(Math.abs(drift) * 1000, 3000));
+            }
+            console.log(`Mobile: Adjusting playback rate, drift: ${drift.toFixed(2)}s`);
+          } else if (Math.abs(drift) > 2) {
+            // Fallback: Only seekTo if drift is really bad (>2 seconds)
+            ignoreNextStateChange.current = true;
+            player.seekTo(expectedPosition, true);
+            console.log(`Mobile: Had to seekTo, drift: ${drift.toFixed(2)}s`);
+          }
+        }
+      }
+      // Desktop: Use gentler playback rate adjustment
+      else if (Math.abs(drift) > 0.2) {
         if (drift > 0) {
           // We're ahead, slow down
           player.setPlaybackRate(0.9);
@@ -355,9 +378,16 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         }
         console.log(`Desktop: Adjusting sync, drift: ${drift.toFixed(2)}s`);
       }
+
+      // EMERGENCY RESYNC: If drift is massive (>10 seconds), force resync even on mobile
+      if (Math.abs(drift) > 10) {
+        ignoreNextStateChange.current = true;
+        player.seekTo(expectedPosition, true);
+        console.log(`CRITICAL: Force resync, drift was ${drift.toFixed(2)}s`);
+      }
     };
 
-    // Desktop only - check every 2 seconds
+    // Check sync every 2 seconds for all devices
     const syncInterval = setInterval(syncWithHost, 2000);
     return () => clearInterval(syncInterval);
   }, [isHost, roomId]);
