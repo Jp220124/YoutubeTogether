@@ -31,12 +31,27 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const isMobile = useRef(false);
   const isBuffering = useRef(false);
   const lastCommandTime = useRef(0);
+  const hasUserInteracted = useRef(false);
+  const isMuted = useRef(false);
 
-  // Detect mobile on mount
+  // Detect mobile on mount and track user interactions
   useEffect(() => {
     isMobile.current = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
     );
+
+    // Track user interactions for autoplay
+    const handleUserInteraction = () => {
+      hasUserInteracted.current = true;
+    };
+
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('touchstart', handleUserInteraction);
+
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
   }, []);
 
   // YouTube player options
@@ -161,16 +176,38 @@ const YouTubePlayer = memo(function YouTubePlayer({
       switch (data.state) {
         case 'playing':
           playerRef.current.seekTo(data.position, true);
-          // Add small delay to ensure seek completes before play
-          setTimeout(() => {
-            playerRef.current.playVideo();
-          }, 100);
+
+          // Try to play with different strategies
+          const tryPlay = async () => {
+            try {
+              // First try: direct play if user has interacted
+              if (hasUserInteracted.current) {
+                await playerRef.current.playVideo();
+              } else {
+                // Second try: muted autoplay
+                playerRef.current.mute();
+                isMuted.current = true;
+                await playerRef.current.playVideo();
+
+                // Unmute after successful play
+                setTimeout(() => {
+                  if (playerRef.current && isMuted.current) {
+                    playerRef.current.unMute();
+                    isMuted.current = false;
+                  }
+                }, 500);
+              }
+            } catch (error) {
+              console.log('Playback failed, need user gesture');
+              setNeedsUserGesture(true);
+            }
+          };
+
+          tryPlay();
           break;
         case 'paused':
           playerRef.current.pauseVideo();
-          setTimeout(() => {
-            playerRef.current.seekTo(data.position, true);
-          }, 100);
+          playerRef.current.seekTo(data.position, true);
           break;
         case 'seek':
           playerRef.current.seekTo(data.position, true);
@@ -193,9 +230,22 @@ const YouTubePlayer = memo(function YouTubePlayer({
     };
   }, [isHost]);
 
-  // Mobile tap to start
-  const handleMobileStart = () => {
+  // Handle user gesture to start playback
+  const handleUserStart = () => {
     if (playerRef.current) {
+      hasUserInteracted.current = true;
+
+      // If muted, unmute first
+      if (isMuted.current) {
+        playerRef.current.unMute();
+        isMuted.current = false;
+      }
+
+      // Sync to current position and play
+      if (videoState.currentTime) {
+        playerRef.current.seekTo(videoState.currentTime, true);
+      }
+
       playerRef.current.playVideo();
       setNeedsUserGesture(false);
     }
@@ -239,16 +289,19 @@ const YouTubePlayer = memo(function YouTubePlayer({
         </div>
       )}
 
-      {/* Mobile tap to start */}
+      {/* User gesture required to start */}
       {needsUserGesture && !isHost && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-40">
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-40">
           <button
-            onClick={handleMobileStart}
-            className="bg-red-600 hover:bg-red-700 text-white p-6 rounded-full"
+            onClick={handleUserStart}
+            className="bg-red-600 hover:bg-red-700 text-white p-6 rounded-full transition-all transform hover:scale-110"
           >
             <Icons.Play className="w-12 h-12" fill="white" />
           </button>
-          <p className="absolute bottom-8 text-white">Tap to start</p>
+          <p className="mt-4 text-white text-lg">Click to sync with host</p>
+          {isMuted.current && (
+            <p className="mt-2 text-white/70 text-sm">Video will start muted</p>
+          )}
         </div>
       )}
 
