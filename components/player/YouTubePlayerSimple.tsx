@@ -39,6 +39,9 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const ignoreNextPause = useRef(false);
   const pauseVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSeekTime = useRef(0);
+  const hasPlayedSuccessfully = useRef(false);
+  const consecutivePlayEvents = useRef(0);
+  const userInitiatedPause = useRef(false);
 
   // Detect mobile on mount and track user interactions
   useEffect(() => {
@@ -49,10 +52,25 @@ const YouTubePlayer = memo(function YouTubePlayer({
     // Track user interactions for autoplay
     const handleUserInteraction = () => {
       hasUserInteracted.current = true;
+      // If user clicks while video is paused, mark it as user-initiated
+      if (playerRef.current && playerRef.current.getPlayerState && playerRef.current.getPlayerState() === 2) {
+        userInitiatedPause.current = true;
+        setTimeout(() => {
+          userInitiatedPause.current = false;
+        }, 1000);
+      }
     };
 
     document.addEventListener('click', handleUserInteraction);
     document.addEventListener('touchstart', handleUserInteraction);
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && isHost) {
+        userInitiatedPause.current = true;
+        setTimeout(() => {
+          userInitiatedPause.current = false;
+        }, 1000);
+      }
+    });
 
     return () => {
       document.removeEventListener('click', handleUserInteraction);
@@ -74,6 +92,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       rel: 0,
       origin: window.location.origin,
       disablekb: isHost ? 0 : 1, // Disable keyboard for viewers
+      mute: 0, // Start unmuted
     },
   };
 
@@ -81,6 +100,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const onReady = (event: YouTubeEvent) => {
     playerRef.current = event.target;
     setIsLoading(false);
+
+    // For HOST, always show click to start for new videos
+    if (isHost && videoState.videoId) {
+      // Don't autoplay, let host explicitly start
+      setNeedsUserGesture(true);
+    }
 
     // For viewers, sync to current state
     if (!isHost && videoState.videoId) {
@@ -115,6 +140,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
     const currentTime = playerRef.current.getCurrentTime();
     const now = Date.now();
 
+    console.log(`State change: ${state} at ${currentTime}s, hasPlayed: ${hasPlayedSuccessfully.current}`);
+
     // Detect buffering
     if (state === 3) { // Buffering
       isBuffering.current = true;
@@ -125,18 +152,24 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     // For unstarted state, don't broadcast
     if (state === -1 || state === 5) { // unstarted or video cued
+      hasPlayedSuccessfully.current = false;
+      consecutivePlayEvents.current = 0;
       return;
     }
 
-    // Broadcast state changes with debouncing
+    // Broadcast state changes with strict filtering
     switch (state) {
       case 1: // Playing
+        consecutivePlayEvents.current++;
+
+        // Only consider video as successfully playing after 3 consecutive play events
+        // This ensures the video is actually playing and not just attempting to play
+        if (consecutivePlayEvents.current >= 3) {
+          hasPlayedSuccessfully.current = true;
+        }
+
         lastPlayTime.current = now;
-        ignoreNextPause.current = true;
-        // Reset ignore flag after a short delay
-        setTimeout(() => {
-          ignoreNextPause.current = false;
-        }, 500);
+        userInitiatedPause.current = false; // Reset pause flag
 
         // Ensure we're unmuted when playing
         if (isMuted.current && playerRef.current) {
@@ -153,43 +186,44 @@ const YouTubePlayer = memo(function YouTubePlayer({
         break;
 
       case 2: // Paused
-        // Ignore pause events that happen immediately after play (within 500ms)
-        if (ignoreNextPause.current) return;
+        // CRITICAL: Only broadcast pause if video has been successfully playing
+        if (!hasPlayedSuccessfully.current) {
+          console.log('Ignoring pause - video has not played successfully yet');
 
-        // Ignore rapid pause events (within 200ms of last pause)
-        if (now - lastPauseTime.current < 200) return;
-
-        // Stronger guards to prevent premature pause broadcasting
-        const PAUSE_SUPPRESS_MS = 1200; // window to suppress after play/seek
-        const MIN_POSITION_FOR_PAUSE = 1.0; // ignore near t=0
-
-        // Ignore pause right after play or seek
-        if (now - lastPlayTime.current < PAUSE_SUPPRESS_MS) return;
-        if (now - lastSeekTime.current < PAUSE_SUPPRESS_MS) return;
-        if (currentTime < MIN_POSITION_FOR_PAUSE) {
-          // treat as autoplay block noise
+          // If we're getting pause events without successful play, likely autoplay issue
           playAttempts.current++;
-          if (playAttempts.current > 2) {
+          if (playAttempts.current > 3 && currentTime < 1) {
             setNeedsUserGesture(true);
             playAttempts.current = 0;
           }
           return;
         }
 
-        // Verify the pause is stable for a short interval before emitting
-        if (pauseVerifyTimer.current) clearTimeout(pauseVerifyTimer.current);
-        pauseVerifyTimer.current = setTimeout(() => {
-          if (!playerRef.current) return;
-          const stillPaused = playerRef.current.getPlayerState && playerRef.current.getPlayerState() === 2;
-          if (!stillPaused) return;
-          lastPauseTime.current = Date.now();
-          socket.emit('host-state-change', {
-            roomId,
-            state: 'paused',
-            position: playerRef.current.getCurrentTime(),
-            timestamp: Date.now()
-          });
-        }, 300);
+        // Only broadcast pause if enough time has passed since last play
+        // This filters out the pause events that happen during buffering
+        if (now - lastPlayTime.current < 2000) {
+          console.log('Ignoring pause - too soon after play');
+          return;
+        }
+
+        // Check if this might be a user-initiated pause
+        // User pauses typically happen after the video has been playing for a while
+        const isLikelyUserPause = currentTime > 2 && hasPlayedSuccessfully.current;
+
+        if (!isLikelyUserPause && !userInitiatedPause.current) {
+          console.log('Ignoring pause - not user initiated');
+          return;
+        }
+
+        consecutivePlayEvents.current = 0; // Reset play counter
+        lastPauseTime.current = now;
+
+        socket.emit('host-state-change', {
+          roomId,
+          state: 'paused',
+          position: currentTime,
+          timestamp: now
+        });
         break;
     }
   };
@@ -291,11 +325,17 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     const handleVideoChange = (videoId: string) => {
       if (playerRef.current) {
-        // Reset state tracking when video changes
-        ignoreNextPause.current = true;
-        setTimeout(() => {
-          ignoreNextPause.current = false;
-        }, 1000);
+        // Reset all state tracking when video changes
+        hasPlayedSuccessfully.current = false;
+        consecutivePlayEvents.current = 0;
+        userInitiatedPause.current = false;
+        playAttempts.current = 0;
+
+        // For host, always require click to start new video
+        if (isHost) {
+          setNeedsUserGesture(true);
+        }
+
         playerRef.current.loadVideoById(videoId);
       }
     };
@@ -315,12 +355,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     hasUserInteracted.current = true;
     playAttempts.current = 0;
+    hasPlayedSuccessfully.current = false;
+    consecutivePlayEvents.current = 0;
 
     try {
-      // For host, just play directly
+      // For host, play and mark as starting fresh
       if (isHost) {
         await playerRef.current.playVideo();
         setNeedsUserGesture(false);
+        // Give time for play to register
+        setTimeout(() => {
+          if (playerRef.current && playerRef.current.getPlayerState() === 1) {
+            hasPlayedSuccessfully.current = true;
+          }
+        }, 1000);
         return;
       }
 
