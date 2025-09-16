@@ -36,8 +36,9 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const playAttempts = useRef(0);
   const lastPlayTime = useRef(0);
   const lastPauseTime = useRef(0);
-  const ignoreNextPause = useRef(false);
-  const pauseVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Removed unused refs - keeping for potential future use
+  // const ignoreNextPause = useRef(false);
+  // const pauseVerifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSeekTime = useRef(0);
   const hasPlayedSuccessfully = useRef(false);
   const consecutivePlayEvents = useRef(0);
@@ -63,18 +64,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     document.addEventListener('click', handleUserInteraction);
     document.addEventListener('touchstart', handleUserInteraction);
-    document.addEventListener('keydown', (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && isHost) {
         userInitiatedPause.current = true;
         setTimeout(() => {
           userInitiatedPause.current = false;
         }, 1000);
       }
-    });
+    };
+    document.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.removeEventListener('click', handleUserInteraction);
       document.removeEventListener('touchstart', handleUserInteraction);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 
@@ -134,7 +137,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
               isMuted.current = false;
             }
           }, 500);
-        }).catch((error) => {
+        }).catch((error: any) => {
           console.log('[onReady] Viewer autoplay failed:', error);
           // Need user gesture
           setNeedsUserGesture(true);
@@ -458,7 +461,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       }
 
       setNeedsUserGesture(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to start playback:', error);
     }
   };
