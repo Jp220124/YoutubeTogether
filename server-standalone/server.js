@@ -198,6 +198,37 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('request-current-position', ({ roomId }) => {
+    console.log(`[Server] Position request from ${socket.id} for room ${roomId}`);
+    const room = rooms.get(roomId);
+
+    if (room) {
+      // Calculate current position if video is playing
+      let currentPosition = room.videoState.currentTime;
+      const timestamp = Date.now();
+
+      if (room.videoState.isPlaying) {
+        // Add elapsed time since last update
+        const elapsed = (timestamp - room.videoState.lastUpdate) / 1000;
+        currentPosition += elapsed;
+        console.log(`[Server] Video is playing, calculated position: ${currentPosition}`);
+      } else {
+        console.log(`[Server] Video is paused at position: ${currentPosition}`);
+      }
+
+      // Send current position to requester
+      socket.emit('current-position', {
+        position: currentPosition,
+        isPlaying: room.videoState.isPlaying,
+        timestamp: timestamp
+      });
+
+      console.log(`[Server] Sent position ${currentPosition} to ${socket.id}`);
+    } else {
+      console.log(`[Server] Room ${roomId} not found for position request`);
+    }
+  });
+
   socket.on('send-message', ({ roomId, message }) => {
     const room = rooms.get(roomId);
     if (room && room.users.has(socket.id)) {

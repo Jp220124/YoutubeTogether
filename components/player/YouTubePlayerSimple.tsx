@@ -505,11 +505,39 @@ const YouTubePlayer = memo(function YouTubePlayer({
         return;
       }
 
-      // For viewers, always use the prop videoState which has the server's latest state
-      // latestVideoState might not be updated yet if no socket events have been received
-      const currentState = videoState; // Use prop directly, not the ref
-      console.log('[handleUserStart] VIEWER - Using videoState prop:', currentState);
-      console.log('[handleUserStart] VIEWER - latestVideoState ref:', latestVideoState.current);
+      // For viewers, request fresh position from server to ensure accuracy
+      console.log('[handleUserStart] VIEWER - Requesting current position from server');
+      const socket = getSocket();
+
+      // Request current position from server
+      socket.emit('request-current-position', { roomId });
+
+      // Wait for server response with timeout fallback
+      const currentState = await new Promise<typeof videoState>((resolve) => {
+        const timeout = setTimeout(() => {
+          console.log('[handleUserStart] Timeout - using videoState prop as fallback');
+          resolve(videoState);
+        }, 1000);
+
+        socket.once('current-position', (data: {
+          position: number;
+          isPlaying: boolean;
+          timestamp: number
+        }) => {
+          clearTimeout(timeout);
+          console.log('[handleUserStart] Received fresh position from server:', data);
+
+          // Create state object from server response
+          resolve({
+            ...videoState,
+            currentTime: data.position,
+            isPlaying: data.isPlaying,
+            lastUpdate: data.timestamp
+          });
+        });
+      });
+
+      console.log('[handleUserStart] VIEWER - Using state:', currentState);
 
       let syncPosition = 0;
       if (currentState.isPlaying && currentState.lastUpdate) {
