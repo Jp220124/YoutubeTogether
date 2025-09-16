@@ -209,9 +209,9 @@ const YouTubePlayer = memo(function YouTubePlayer({
         // Reset buffer-related pause flag when playing resumes
         lastPauseWasBufferRelated.current = false;
 
-        // Consider video as successfully playing after 2 consecutive play events
-        // (reduced from 3 since we're now using manual start)
-        if (consecutivePlayEvents.current >= 2) {
+        // Mark video as successfully playing after first play event
+        // Since we're using manual start, the first play is user-initiated
+        if (consecutivePlayEvents.current >= 1) {
           if (!hasPlayedSuccessfully.current) {
             console.log('[onStateChange] ✅ Video is now successfully playing!');
           }
@@ -255,18 +255,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
             return;
           }
 
-          // CRITICAL: Only broadcast pause if video has been successfully playing
-          if (!hasPlayedSuccessfully.current) {
-            console.log('[onStateChange] ❌ IGNORING PAUSE - video never played successfully');
+          // Only skip pause if we've NEVER played (consecutivePlayEvents = 0)
+          // If we have at least 1 play event, the user has started the video
+          if (consecutivePlayEvents.current === 0) {
+            console.log('[onStateChange] ❌ IGNORING PAUSE - video never started');
             return;
           }
 
           const timeSincePlay = Date.now() - lastPlayTime.current;
           console.log(`[onStateChange] Time since last play: ${timeSincePlay}ms`);
 
-          // Only broadcast pause if enough time has passed since last play
-          if (timeSincePlay < 2000) {
-            console.log('[onStateChange] ❌ IGNORING PAUSE - too soon after play');
+          // Only skip pause if it's very soon after play (likely automatic)
+          // Reduced threshold to catch more user pauses
+          if (timeSincePlay < 500) {
+            console.log('[onStateChange] ❌ IGNORING PAUSE - too soon after play (likely automatic)');
             return;
           }
 
