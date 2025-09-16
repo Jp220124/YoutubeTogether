@@ -78,12 +78,12 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         videoId: videoState.videoId,
         playerVars: {
           autoplay: 0,
-          controls: isHost ? 1 : (isMobile.current ? 1 : 0), // Enable controls for viewers on mobile
+          controls: isHost ? 1 : 0, // Only host has controls, even on mobile
           disablekb: !isHost ? 1 : 0,
           modestbranding: 1,
           rel: 0,
           origin: window.location.origin,
-          fs: 0,
+          fs: isMobile.current && isHost ? 1 : 0, // Only enable fullscreen for mobile host
           playsinline: 1,
           enablejsapi: 1,
           iv_load_policy: 3,
@@ -95,6 +95,13 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           onReady: (event: any) => {
             console.log('YouTube player ready, syncing state:', videoState);
             setIsLoading(false);
+
+            // Ensure iframe has proper fullscreen attributes for iOS
+            const iframe = event.target.getIframe();
+            if (iframe) {
+              iframe.setAttribute('allowfullscreen', 'true');
+              iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen');
+            }
 
             // Sync to current video state
             if (videoState.currentTime > 0) {
@@ -118,6 +125,20 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
             if (ignoreNextStateChange.current) {
               ignoreNextStateChange.current = false;
               return;
+            }
+
+            // For non-hosts on mobile, detect if they've manually interacted with the player
+            if (!isHost && isMobile.current) {
+              const currentTime = event.target.getCurrentTime();
+              const expectedTime = playStartPosition.current + ((Date.now() - playStartTime.current) / 1000);
+
+              // If viewer is more than 1 second out of sync, they've manually seeked
+              if (Math.abs(currentTime - expectedTime) > 1) {
+                console.log('Mobile viewer manually seeked, resyncing...');
+                // Force resync to host position
+                event.target.seekTo(expectedTime, true);
+                return;
+              }
             }
 
             if (!isHost) return;
@@ -318,10 +339,11 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           }, Math.abs(drift) * 1000);
         }
         console.log(`Viewer: Adjusting sync, drift: ${drift.toFixed(2)}s`);
-      } else if (isMobile.current && Math.abs(drift) > 2) {
-        // On mobile, only seek if drift is significant (>2 seconds)
+      } else if (isMobile.current && Math.abs(drift) > 1) {
+        // On mobile, aggressively resync if drift is more than 1 second
+        ignoreNextStateChange.current = true;
         player.seekTo(expectedPosition, true);
-        console.log(`Mobile: Hard sync, drift: ${drift.toFixed(2)}s`);
+        console.log(`Mobile: Force resync, drift: ${drift.toFixed(2)}s`);
       }
     };
 
@@ -400,21 +422,46 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         </div>
       )}
 
+      {/* Mobile viewer overlay - Prevent controls but show message */}
+      {!isHost && isMobile.current && !isLoading && !needsUserGesture && (
+        <div className="absolute inset-0 z-25 pointer-events-none">
+          <div
+            className="absolute inset-0 pointer-events-auto"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          />
+          <div className="absolute bottom-20 left-0 right-0 flex justify-center pointer-events-none">
+            <div className="bg-black/80 text-white px-4 py-2 rounded-lg text-xs font-medium">
+              <Icons.Lock className="inline w-3 h-3 mr-1" />
+              Only host can control playback
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Control overlay for all users */}
       {!isLoading && (
         <div className="absolute inset-0 z-20 pointer-events-none">
-          {/* Fullscreen button for everyone */}
-          <button
-            onClick={toggleFullscreen}
-            className="absolute top-2 right-2 sm:top-4 sm:right-4 p-2 sm:p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg pointer-events-auto transition-all hover:scale-110 group"
-            title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          >
-            {isFullscreen ? (
-              <Icons.Minimize className="w-4 h-4 sm:w-5 sm:h-5" />
-            ) : (
-              <Icons.Maximize className="w-4 h-4 sm:w-5 sm:h-5" />
-            )}
-          </button>
+          {/* Fullscreen button for desktop only (mobile uses native YouTube fullscreen) */}
+          {!isMobile.current && (
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-2 right-2 sm:top-4 sm:right-4 p-2 sm:p-3 bg-black/70 hover:bg-black/90 text-white rounded-lg pointer-events-auto transition-all hover:scale-110 group"
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+            >
+              {isFullscreen ? (
+                <Icons.Minimize className="w-4 h-4 sm:w-5 sm:h-5" />
+              ) : (
+                <Icons.Maximize className="w-4 h-4 sm:w-5 sm:h-5" />
+              )}
+            </button>
+          )}
 
           {/* Host/Viewer indicator */}
           <div className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4 bg-black/80 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium shadow-lg flex items-center gap-1.5 sm:gap-2">
