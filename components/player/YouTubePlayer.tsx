@@ -31,8 +31,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
   const [pendingPlay, setPendingPlay] = useState(false);
   const [hasStartedOnce, setHasStartedOnce] = useState(false); // Track if video has started once
   const ignoreNextStateChange = useRef(false);
-  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSyncTime = useRef(0);
+  // Removed unused refs - kept for potential future use
   const playStartTime = useRef(0);
   const playStartPosition = useRef(0);
   const isMobile = useRef(false);
@@ -218,7 +217,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         // Try to play
         const playPromise = playerRef.current.playVideo();
         if (playPromise !== undefined) {
-          playPromise.catch((e: any) => {
+          playPromise.catch(() => {
             console.log('Play failed, need user gesture');
             // On mobile, if autoplay fails, we need user gesture
             if (isMobile.current && !isHost) {
