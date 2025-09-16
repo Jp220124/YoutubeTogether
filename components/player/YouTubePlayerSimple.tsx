@@ -221,13 +221,15 @@ const YouTubePlayer = memo(function YouTubePlayer({
           isMuted.current = false;
         }
 
-        console.log(`[onStateChange] Emitting PLAYING to server at position ${currentTime}`);
-        socket.emit('host-state-change', {
+        console.log(`[onStateChange] HOST emitting PLAYING to server at position ${currentTime}`);
+        const emitData = {
           roomId,
           state: 'playing',
           position: currentTime,
           timestamp: now
-        });
+        };
+        console.log('[onStateChange] Emit data:', emitData);
+        socket.emit('host-state-change', emitData);
         break;
 
       case 2: // Paused
@@ -331,53 +333,86 @@ const YouTubePlayer = memo(function YouTubePlayer({
       position: number;
       timestamp: number
     }) => {
-      if (!playerRef.current) return;
+      console.log(`[Viewer] Received state-changed: ${data.state} at position ${data.position}`);
+
+      if (!playerRef.current) {
+        console.log('[Viewer] No player ref - cannot apply state change');
+        return;
+      }
 
       // Debounce rapid updates
       const now = Date.now();
-      if (now - lastCommandTime.current < 200) return;
+      if (now - lastCommandTime.current < 200) {
+        console.log('[Viewer] Debouncing rapid update');
+        return;
+      }
       lastCommandTime.current = now;
 
       // Apply state immediately without calculations
       switch (data.state) {
         case 'playing':
+          console.log(`[Viewer] Applying PLAY command at position ${data.position}`);
+
+          // Always seek first to ensure correct position
           playerRef.current.seekTo(data.position, true);
 
           // Try to play with different strategies
-          const tryPlay = async () => {
+          const tryPlay = () => {
+            // Always attempt to play immediately
+            // The browser will block if no user interaction
             try {
-              // First try: direct play if user has interacted
               if (hasUserInteracted.current) {
-                await playerRef.current.playVideo();
-              } else {
-                // Second try: muted autoplay
-                playerRef.current.mute();
-                isMuted.current = true;
-                await playerRef.current.playVideo();
+                console.log('[Viewer] User has interacted - attempting direct play');
+                playerRef.current.playVideo();
+                console.log('[Viewer] Play command sent');
 
-                // Unmute after successful play
-                setTimeout(() => {
-                  if (playerRef.current && isMuted.current) {
-                    playerRef.current.unMute();
-                    isMuted.current = false;
-                  }
-                }, 500);
+                // Hide the gesture button since user has already interacted
+                setNeedsUserGesture(false);
+              } else {
+                console.log('[Viewer] No user interaction - attempting play anyway');
+
+                // Try to play, browser might block it
+                const playPromise = playerRef.current.playVideo();
+
+                // Check if it's a promise (modern browsers)
+                if (playPromise && playPromise.catch) {
+                  playPromise.catch((error: unknown) => {
+                    console.log('[Viewer] Play blocked by browser, showing user gesture button');
+                    setNeedsUserGesture(true);
+                  });
+                } else {
+                  // For older APIs, we can't detect failure immediately
+                  // Check if playing after a short delay
+                  setTimeout(() => {
+                    if (playerRef.current && playerRef.current.getPlayerState() !== 1) {
+                      console.log('[Viewer] Play seems blocked, showing gesture button');
+                      setNeedsUserGesture(true);
+                    }
+                  }, 500);
+                }
               }
             } catch (error) {
-              console.log('Playback failed, need user gesture');
+              console.log('[Viewer] Play error:', error);
               setNeedsUserGesture(true);
             }
           };
 
           tryPlay();
           break;
+
         case 'paused':
+          console.log(`[Viewer] Applying PAUSE command at position ${data.position}`);
           playerRef.current.pauseVideo();
           playerRef.current.seekTo(data.position, true);
           break;
+
         case 'seek':
+          console.log(`[Viewer] Applying SEEK command to position ${data.position}`);
           playerRef.current.seekTo(data.position, true);
           break;
+
+        default:
+          console.log(`[Viewer] Unknown state: ${data.state}`);
       }
     };
 
@@ -408,12 +443,15 @@ const YouTubePlayer = memo(function YouTubePlayer({
     socket.on('state-changed', handleStateChange);
     socket.on('video-changed', handleVideoChange);
 
+    console.log('[Viewer] Event listeners attached');
+
     return () => {
-      socket.off('state-changed');
-      socket.off('video-changed');
+      console.log('[Viewer] Cleaning up event listeners');
+      socket.off('state-changed', handleStateChange);
+      socket.off('video-changed', handleVideoChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isHost]); // Re-setup listeners if host status changes
 
   // Handle user gesture to start playback
   const handleUserStart = async () => {

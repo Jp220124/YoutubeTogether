@@ -144,27 +144,41 @@ io.on('connection', (socket) => {
 
   // New simplified state broadcasting
   socket.on('host-state-change', ({ roomId, state, position, timestamp }) => {
+    console.log(`[Server] Received host-state-change from ${socket.id}: ${state} at ${position}`);
+
     const room = rooms.get(roomId);
-    if (room && room.host === socket.id) {
-      // Update room state
-      room.videoState.currentTime = position || 0;
-      room.videoState.lastUpdate = timestamp || Date.now();
-
-      if (state === 'playing') {
-        room.videoState.isPlaying = true;
-      } else if (state === 'paused') {
-        room.videoState.isPlaying = false;
-      }
-
-      // Broadcast to all viewers
-      socket.to(roomId).emit('state-changed', {
-        state,
-        position,
-        timestamp
-      });
-
-      console.log(`Host state change: ${state} at ${position}`);
+    if (!room) {
+      console.log(`[Server] Room ${roomId} not found`);
+      return;
     }
+
+    if (room.host !== socket.id) {
+      console.log(`[Server] Socket ${socket.id} is not host of room ${roomId} (host is ${room.host})`);
+      return;
+    }
+
+    // Update room state
+    room.videoState.currentTime = position || 0;
+    room.videoState.lastUpdate = timestamp || Date.now();
+
+    if (state === 'playing') {
+      room.videoState.isPlaying = true;
+    } else if (state === 'paused') {
+      room.videoState.isPlaying = false;
+    }
+
+    // Get list of viewers to broadcast to
+    const viewers = Array.from(room.users.keys()).filter(id => id !== socket.id);
+    console.log(`[Server] Broadcasting ${state} to ${viewers.length} viewers in room ${roomId}`);
+
+    // Broadcast to all viewers
+    socket.to(roomId).emit('state-changed', {
+      state,
+      position,
+      timestamp
+    });
+
+    console.log(`[Server] Host state change complete: ${state} at ${position}`);
   });
 
   // Host sends periodic time updates (removed - no longer needed)
