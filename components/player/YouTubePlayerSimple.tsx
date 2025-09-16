@@ -119,37 +119,33 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     // For viewers, sync to current state
     if (!isHost && videoState.videoId) {
+      console.log('[onReady] VIEWER DETECTED - Setting up initial sync');
+      console.log('[onReady] VideoState:', videoState);
+
       // Calculate actual current position if video is playing
       let syncPosition = 0;
       if (videoState.isPlaying && videoState.lastUpdate) {
         const elapsedSeconds = (Date.now() - videoState.lastUpdate) / 1000;
         syncPosition = (videoState.currentTime || 0) + elapsedSeconds;
-        console.log(`[onReady] Viewer detected - video is playing, calculated position: ${syncPosition}`);
+        console.log(`[onReady] Video IS PLAYING, calculated position: ${syncPosition}`);
         console.log(`[onReady] Calculation: ${videoState.currentTime} + ${elapsedSeconds}s elapsed`);
       } else {
         syncPosition = videoState.currentTime || 0;
-        console.log(`[onReady] Viewer detected - video is paused at position: ${syncPosition}`);
+        console.log(`[onReady] Video is PAUSED at position: ${syncPosition}`);
       }
+
+      console.log(`[onReady] Seeking viewer to position: ${syncPosition}`);
       event.target.seekTo(syncPosition, true);
       if (videoState.isPlaying) {
-        console.log('[onReady] Attempting muted autoplay for viewer');
-        // Try muted autoplay first
-        event.target.mute();
-        isMuted.current = true;
-        event.target.playVideo().then(() => {
-          console.log('[onReady] Viewer autoplay successful');
-          // Unmute after successful play
-          setTimeout(() => {
-            if (playerRef.current && isMuted.current) {
-              playerRef.current.unMute();
-              isMuted.current = false;
-            }
-          }, 500);
-        }).catch(() => {
-          console.log('[onReady] Viewer autoplay failed');
-          // Need user gesture
-          setNeedsUserGesture(true);
-        });
+        console.log('[onReady] Video should be playing - attempting to start playback');
+
+        // Always show click to sync for viewers initially
+        // Browser autoplay policies are too restrictive
+        console.log('[onReady] Showing click to sync button for viewer');
+        setNeedsUserGesture(true);
+        hasUserInteracted.current = false;
+      } else {
+        console.log('[onReady] Video is paused - not starting playback');
       }
     }
   };
@@ -329,12 +325,15 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
   // VIEWER: Listen for state broadcasts
   useEffect(() => {
+    console.log(`[useEffect] Setting up listeners - isHost: ${isHost}`);
+
     if (isHost) {
       console.log('[useEffect] Host mode - not listening for state changes');
       return;
     }
 
-    console.log('[useEffect] Viewer mode - setting up state change listeners');
+    console.log('[useEffect] VIEWER MODE - setting up state change listeners');
+    console.log('[useEffect] Current videoState:', videoState);
     const socket = getSocket();
 
     const handleStateChange = (data: {
@@ -368,41 +367,23 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
           // Try to play with different strategies
           const tryPlay = () => {
-            // Always attempt to play immediately
-            // The browser will block if no user interaction
+            console.log(`[Viewer] tryPlay called - hasUserInteracted: ${hasUserInteracted.current}`);
+
+            // If user hasn't interacted yet, always show the sync button
+            if (!hasUserInteracted.current) {
+              console.log('[Viewer] No user interaction yet - showing sync button');
+              setNeedsUserGesture(true);
+              return;
+            }
+
+            // User has interacted, try to play
             try {
-              if (hasUserInteracted.current) {
-                console.log('[Viewer] User has interacted - attempting direct play');
-                playerRef.current.playVideo();
-                console.log('[Viewer] Play command sent');
-
-                // Hide the gesture button since user has already interacted
-                setNeedsUserGesture(false);
-              } else {
-                console.log('[Viewer] No user interaction - attempting play anyway');
-
-                // Try to play, browser might block it
-                const playPromise = playerRef.current.playVideo();
-
-                // Check if it's a promise (modern browsers)
-                if (playPromise && playPromise.catch) {
-                  playPromise.catch((error: unknown) => {
-                    console.log('[Viewer] Play blocked by browser, showing user gesture button');
-                    setNeedsUserGesture(true);
-                  });
-                } else {
-                  // For older APIs, we can't detect failure immediately
-                  // Check if playing after a short delay
-                  setTimeout(() => {
-                    if (playerRef.current && playerRef.current.getPlayerState() !== 1) {
-                      console.log('[Viewer] Play seems blocked, showing gesture button');
-                      setNeedsUserGesture(true);
-                    }
-                  }, 500);
-                }
-              }
-            } catch {
-              console.log('[Viewer] Play error');
+              console.log('[Viewer] User has interacted - attempting direct play');
+              playerRef.current.playVideo();
+              console.log('[Viewer] Play command sent successfully');
+              setNeedsUserGesture(false);
+            } catch (error) {
+              console.log('[Viewer] Play failed:', error);
               setNeedsUserGesture(true);
             }
           };
@@ -453,7 +434,13 @@ const YouTubePlayer = memo(function YouTubePlayer({
     socket.on('state-changed', handleStateChange);
     socket.on('video-changed', handleVideoChange);
 
-    console.log('[Viewer] Event listeners attached');
+    console.log('[Viewer] Event listeners attached for roomId:', roomId);
+
+    // If video is already playing when viewer joins, show the sync button
+    if (videoState.isPlaying && !hasUserInteracted.current) {
+      console.log('[Viewer] Video is already playing, showing sync button');
+      setNeedsUserGesture(true);
+    }
 
     return () => {
       console.log('[Viewer] Cleaning up event listeners');
@@ -461,7 +448,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       socket.off('video-changed', handleVideoChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHost]); // Re-setup listeners if host status changes
+  }, [isHost, roomId, videoState.isPlaying]); // Re-setup listeners if these change
 
   // Handle user gesture to start playback
   const handleUserStart = async () => {
