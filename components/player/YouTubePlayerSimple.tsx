@@ -43,6 +43,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const hasPlayedSuccessfully = useRef(false);
   const consecutivePlayEvents = useRef(0);
   const userInitiatedPause = useRef(false);
+  const lastPauseWasBufferRelated = useRef(false);
 
   // Detect mobile on mount and track user interactions
   useEffect(() => {
@@ -174,6 +175,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
     if (state === 3) { // Buffering
       console.log('[onStateChange] Buffering detected');
       isBuffering.current = true;
+      // If buffering happens right after a pause, mark that pause as buffer-related
+      if (now - lastPauseTime.current < 1000) {
+        console.log('[onStateChange] This buffering follows a recent pause - marking as buffer-related');
+        lastPauseWasBufferRelated.current = true;
+      }
       return;
     } else {
       isBuffering.current = false;
@@ -192,6 +198,9 @@ const YouTubePlayer = memo(function YouTubePlayer({
       case 1: // Playing
         consecutivePlayEvents.current++;
         console.log(`[onStateChange] PLAYING event #${consecutivePlayEvents.current}`);
+
+        // Reset buffer-related pause flag when playing resumes
+        lastPauseWasBufferRelated.current = false;
 
         // Consider video as successfully playing after 2 consecutive play events
         // (reduced from 3 since we're now using manual start)
@@ -224,51 +233,47 @@ const YouTubePlayer = memo(function YouTubePlayer({
       case 2: // Paused
         console.log(`[onStateChange] PAUSED event at ${currentTime}`);
 
-        // CRITICAL: Only broadcast pause if video has been successfully playing
-        if (!hasPlayedSuccessfully.current) {
-          console.log('[onStateChange] ❌ IGNORING PAUSE - video never played successfully');
-          console.log(`[onStateChange] Play attempts: ${playAttempts.current}`);
-
-          // If we're getting pause events without successful play, likely autoplay issue
-          playAttempts.current++;
-          if (playAttempts.current > 3 && currentTime < 1) {
-            console.log('[onStateChange] Too many failed attempts - showing click to start');
-            setNeedsUserGesture(true);
-            playAttempts.current = 0;
-          }
-          return;
-        }
-
-        const timeSincePlay = now - lastPlayTime.current;
-        console.log(`[onStateChange] Time since last play: ${timeSincePlay}ms`);
-
-        // Only broadcast pause if enough time has passed since last play
-        // This filters out the pause events that happen during buffering
-        if (timeSincePlay < 2000) {
-          console.log('[onStateChange] ❌ IGNORING PAUSE - too soon after play');
-          return;
-        }
-
-        // Check if this might be a user-initiated pause
-        // User pauses typically happen after the video has been playing for a while
-        const isLikelyUserPause = currentTime > 2 && hasPlayedSuccessfully.current;
-        console.log(`[onStateChange] User pause check: time=${currentTime}, likely=${isLikelyUserPause}, flagged=${userInitiatedPause.current}`);
-
-        if (!isLikelyUserPause && !userInitiatedPause.current) {
-          console.log('[onStateChange] ❌ IGNORING PAUSE - not user initiated');
-          return;
-        }
-
-        console.log('[onStateChange] ✅ Broadcasting PAUSE to server');
-        consecutivePlayEvents.current = 0; // Reset play counter
+        // Store pause time immediately
         lastPauseTime.current = now;
 
-        socket.emit('host-state-change', {
-          roomId,
-          state: 'paused',
-          position: currentTime,
-          timestamp: now
-        });
+        // Wait a bit to see if this pause is followed by buffering
+        // If it is, we'll ignore it as it's automatic, not user-initiated
+        setTimeout(() => {
+          // Check if this pause was buffer-related
+          if (lastPauseWasBufferRelated.current) {
+            console.log('[onStateChange] ❌ IGNORING PAUSE - was followed by buffering (automatic pause for buffering)');
+            lastPauseWasBufferRelated.current = false;
+            return;
+          }
+
+          // CRITICAL: Only broadcast pause if video has been successfully playing
+          if (!hasPlayedSuccessfully.current) {
+            console.log('[onStateChange] ❌ IGNORING PAUSE - video never played successfully');
+            return;
+          }
+
+          const timeSincePlay = Date.now() - lastPlayTime.current;
+          console.log(`[onStateChange] Time since last play: ${timeSincePlay}ms`);
+
+          // Only broadcast pause if enough time has passed since last play
+          if (timeSincePlay < 2000) {
+            console.log('[onStateChange] ❌ IGNORING PAUSE - too soon after play');
+            return;
+          }
+
+          // This pause wasn't followed by buffering and enough time has passed
+          // It's likely a real user pause
+          console.log('[onStateChange] ✅ Broadcasting PAUSE to server (user-initiated)');
+          consecutivePlayEvents.current = 0; // Reset play counter
+
+          socket.emit('host-state-change', {
+            roomId,
+            state: 'paused',
+            position: playerRef.current?.getCurrentTime() || currentTime,
+            timestamp: Date.now()
+          });
+        }, 200); // Wait 200ms to see if buffering follows
+
         break;
     }
   };
