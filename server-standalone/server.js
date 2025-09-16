@@ -127,36 +127,28 @@ io.on('connection', (socket) => {
 
   // Removed video-state-change - using timestamp-based sync instead
 
-  socket.on('play-video', ({ roomId, timestamp, position }) => {
+  // New simplified state broadcasting
+  socket.on('host-state-change', ({ roomId, state, position, timestamp }) => {
     const room = rooms.get(roomId);
     if (room && room.host === socket.id) {
-      room.videoState.isPlaying = true;
+      // Update room state
       room.videoState.currentTime = position || 0;
       room.videoState.lastUpdate = timestamp || Date.now();
-      socket.to(roomId).emit('play', { timestamp: room.videoState.lastUpdate, position: room.videoState.currentTime });
-    }
-  });
 
-  socket.on('pause-video', ({ roomId, position }) => {
-    const room = rooms.get(roomId);
-    if (room && room.host === socket.id) {
-      room.videoState.isPlaying = false;
-      room.videoState.currentTime = position || 0;
-      room.videoState.lastUpdate = Date.now();
-      socket.to(roomId).emit('pause', { position: room.videoState.currentTime });
-    }
-  });
+      if (state === 'playing') {
+        room.videoState.isPlaying = true;
+      } else if (state === 'paused') {
+        room.videoState.isPlaying = false;
+      }
 
-  socket.on('seek-video', ({ roomId, time }) => {
-    console.log('Seek request:', { roomId, time, hostId: socket.id });
-    const room = rooms.get(roomId);
-    if (room && room.host === socket.id) {
-      room.videoState.currentTime = time;
-      room.videoState.lastUpdate = Date.now();
-      console.log('Broadcasting seek to viewers:', time);
-      socket.to(roomId).emit('seek', time);
-    } else {
-      console.log('Seek denied - not host or room not found');
+      // Broadcast to all viewers
+      socket.to(roomId).emit('state-changed', {
+        state,
+        position,
+        timestamp
+      });
+
+      console.log(`Host state change: ${state} at ${position}`);
     }
   });
 

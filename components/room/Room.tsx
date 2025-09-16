@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import * as Icons from 'react-feather';
 import { initSocket, getSocket, disconnectSocket } from '@/lib/socket/socket';
 import { useStore } from '@/lib/store/useStore';
-import YouTubePlayer from '@/components/player/YouTubePlayer';
+import YouTubePlayer from '@/components/player/YouTubePlayerSimple';
 import Chat from '@/components/chat/Chat';
 import VideoControls from '@/components/room/VideoControls';
 import UserList from '@/components/room/UserList';
