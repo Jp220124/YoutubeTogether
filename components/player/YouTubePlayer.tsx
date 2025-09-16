@@ -79,7 +79,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         videoId: videoState.videoId,
         playerVars: {
           autoplay: 0,
-          controls: isHost ? 1 : (isMobile.current && !hasStartedOnce ? 1 : 0), // Show controls for first play on mobile
+          controls: isHost ? 1 : (isMobile.current ? 1 : 0), // Show controls for mobile (can't hide dynamically)
           disablekb: !isHost ? 1 : 0,
           modestbranding: 1,
           rel: 0,
@@ -128,48 +128,23 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
               return;
             }
 
-            // For non-hosts on mobile, detect state changes
+            // For non-hosts on mobile, handle first play and detect seeks
             if (!isHost && isMobile.current) {
-              // If this is the first play, mark it and hide controls
+              // If this is the first play, mark it
               if (event.data === window.YT.PlayerState.PLAYING && !hasStartedOnce) {
                 console.log('Mobile viewer started video for first time');
                 setHasStartedOnce(true);
                 setNeedsUserGesture(false);
-
-                // Hide controls after first play
-                setTimeout(() => {
-                  if (event.target && event.target.setOption) {
-                    // Try to disable controls programmatically
-                    try {
-                      const iframe = event.target.getIframe();
-                      if (iframe) {
-                        // Reload player without controls
-                        const videoId = event.target.getVideoData().video_id;
-                        const currentTime = event.target.getCurrentTime();
-                        event.target.loadVideoById({
-                          videoId: videoId,
-                          startSeconds: currentTime
-                        });
-                      }
-                    } catch (e) {
-                      console.log('Could not disable controls:', e);
-                    }
-                  }
-                }, 100);
+                // Don't reload player - just rely on overlay to block interactions
               }
 
-              // After first play, detect manual interactions
-              if (hasStartedOnce) {
-                const currentTime = event.target.getCurrentTime();
-                const expectedTime = playStartPosition.current + ((Date.now() - playStartTime.current) / 1000);
-
-                // If viewer is more than 1 second out of sync, they've manually seeked
-                if (Math.abs(currentTime - expectedTime) > 1) {
-                  console.log('Mobile viewer manually seeked, resyncing...');
-                  // Force resync to host position
-                  event.target.seekTo(expectedTime, true);
-                  return;
-                }
+              // Detect if viewer manually paused (not allowed)
+              if (event.data === window.YT.PlayerState.PAUSED && hasStartedOnce && playStartTime.current > 0) {
+                console.log('Mobile viewer tried to pause, resuming...');
+                // Resume playback immediately
+                ignoreNextStateChange.current = true;
+                event.target.playVideo();
+                return;
               }
             }
 
@@ -371,8 +346,8 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           }, Math.abs(drift) * 1000);
         }
         console.log(`Viewer: Adjusting sync, drift: ${drift.toFixed(2)}s`);
-      } else if (isMobile.current && Math.abs(drift) > 1) {
-        // On mobile, aggressively resync if drift is more than 1 second
+      } else if (isMobile.current && Math.abs(drift) > 2) {
+        // On mobile, only resync if drift is significant (>2 seconds) to avoid flickering
         ignoreNextStateChange.current = true;
         player.seekTo(expectedPosition, true);
         console.log(`Mobile: Force resync, drift: ${drift.toFixed(2)}s`);
@@ -455,23 +430,34 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         </div>
       )}
 
-      {/* Mobile viewer overlay - Only show AFTER first play */}
-      {!isHost && isMobile.current && !isLoading && !needsUserGesture && hasStartedOnce && (
-        <div className="absolute inset-0 z-25 pointer-events-none">
+      {/* Mobile viewer overlay - Block interactions after first play */}
+      {!isHost && isMobile.current && !isLoading && hasStartedOnce && (
+        <div className="absolute inset-0 z-30 pointer-events-none">
+          {/* Transparent overlay to catch all clicks/touches */}
           <div
-            className="absolute inset-0 pointer-events-auto"
+            className="absolute inset-0 pointer-events-auto bg-transparent"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              console.log('Blocked viewer interaction');
             }}
             onTouchStart={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
+            onTouchMove={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onTouchEnd={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
           />
-          <div className="absolute bottom-20 left-0 right-0 flex justify-center pointer-events-none">
-            <div className="bg-black/80 text-white px-4 py-2 rounded-lg text-xs font-medium">
-              <Icons.Lock className="inline w-3 h-3 mr-1" />
+          {/* Message at bottom */}
+          <div className="absolute bottom-16 left-0 right-0 flex justify-center pointer-events-none">
+            <div className="bg-black/80 text-white px-4 py-2 rounded-lg text-xs font-medium flex items-center">
+              <Icons.Lock className="w-3 h-3 mr-1" />
               Only host can control playback
             </div>
           </div>
