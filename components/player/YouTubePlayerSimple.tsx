@@ -101,10 +101,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
     playerRef.current = event.target;
     setIsLoading(false);
 
-    // For HOST, always show click to start for new videos
-    if (isHost && videoState.videoId) {
-      // Don't autoplay, let host explicitly start
+    // For HOST, cue the video (don't load/play) and show start button
+    if (isHost && videoId) {
+      // Cue video to prevent any autoplay attempts
+      event.target.cueVideoById(videoId);
       setNeedsUserGesture(true);
+      return;
     }
 
     // For viewers, sync to current state
@@ -162,10 +164,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
       case 1: // Playing
         consecutivePlayEvents.current++;
 
-        // Only consider video as successfully playing after 3 consecutive play events
-        // This ensures the video is actually playing and not just attempting to play
-        if (consecutivePlayEvents.current >= 3) {
+        // Consider video as successfully playing after 2 consecutive play events
+        // (reduced from 3 since we're now using manual start)
+        if (consecutivePlayEvents.current >= 2) {
           hasPlayedSuccessfully.current = true;
+          console.log('Video is now successfully playing');
         }
 
         lastPlayTime.current = now;
@@ -334,9 +337,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
         // For host, always require click to start new video
         if (isHost) {
           setNeedsUserGesture(true);
+          // Use cueVideoById instead of loadVideoById to prevent autoplay
+          playerRef.current.cueVideoById(videoId);
+        } else {
+          playerRef.current.loadVideoById(videoId);
         }
-
-        playerRef.current.loadVideoById(videoId);
       }
     };
 
@@ -361,14 +366,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
     try {
       // For host, play and mark as starting fresh
       if (isHost) {
+        // Reset state for clean start
+        hasPlayedSuccessfully.current = false;
+        consecutivePlayEvents.current = 0;
+
         await playerRef.current.playVideo();
         setNeedsUserGesture(false);
-        // Give time for play to register
-        setTimeout(() => {
-          if (playerRef.current && playerRef.current.getPlayerState() === 1) {
-            hasPlayedSuccessfully.current = true;
-          }
-        }, 1000);
         return;
       }
 
