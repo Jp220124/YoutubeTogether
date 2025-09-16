@@ -93,30 +93,40 @@ const YouTubePlayer = memo(function YouTubePlayer({
       origin: window.location.origin,
       disablekb: isHost ? 0 : 1, // Disable keyboard for viewers
       mute: 0, // Start unmuted
+      start: 0, // Start at beginning
+      iv_load_policy: 3, // Hide annotations
     },
   };
 
+  console.log(`[YouTubePlayer] Rendering with videoId: ${videoId}, isHost: ${isHost}`);
+
   // Initialize player
   const onReady = (event: YouTubeEvent) => {
+    console.log(`[onReady] Player ready. IsHost: ${isHost}, VideoId: ${videoId}`);
     playerRef.current = event.target;
     setIsLoading(false);
 
     // For HOST, cue the video (don't load/play) and show start button
     if (isHost && videoId) {
+      console.log('[onReady] Host detected - cueing video without autoplay');
       // Cue video to prevent any autoplay attempts
       event.target.cueVideoById(videoId);
       setNeedsUserGesture(true);
+      console.log('[onReady] Showing click to start button for host');
       return;
     }
 
     // For viewers, sync to current state
     if (!isHost && videoState.videoId) {
+      console.log(`[onReady] Viewer detected - syncing to state: playing=${videoState.isPlaying}, time=${videoState.currentTime}`);
       event.target.seekTo(videoState.currentTime, true);
       if (videoState.isPlaying) {
+        console.log('[onReady] Attempting muted autoplay for viewer');
         // Try muted autoplay first
         event.target.mute();
         isMuted.current = true;
         event.target.playVideo().then(() => {
+          console.log('[onReady] Viewer autoplay successful');
           // Unmute after successful play
           setTimeout(() => {
             if (playerRef.current && isMuted.current) {
@@ -124,7 +134,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
               isMuted.current = false;
             }
           }, 500);
-        }).catch(() => {
+        }).catch((error) => {
+          console.log('[onReady] Viewer autoplay failed:', error);
           // Need user gesture
           setNeedsUserGesture(true);
         });
@@ -134,18 +145,31 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
   // Handle state changes - HOST ONLY broadcasts
   const onStateChange = (event: YouTubeEvent) => {
+    const state = event.data;
+    const stateNames: { [key: number]: string } = {
+      '-1': 'UNSTARTED',
+      '0': 'ENDED',
+      '1': 'PLAYING',
+      '2': 'PAUSED',
+      '3': 'BUFFERING',
+      '5': 'VIDEO_CUED'
+    };
+
+    const currentTime = playerRef.current?.getCurrentTime() || 0;
+    console.log(`[onStateChange] ${stateNames[state] || state} at ${currentTime.toFixed(3)}s | Host: ${isHost} | HasPlayed: ${hasPlayedSuccessfully.current} | ConsecutivePlays: ${consecutivePlayEvents.current}`);
+
     // Only host should handle state changes
-    if (!isHost || !playerRef.current) return;
+    if (!isHost || !playerRef.current) {
+      console.log('[onStateChange] Skipping - not host or no player');
+      return;
+    }
 
     const socket = getSocket();
-    const state = event.data;
-    const currentTime = playerRef.current.getCurrentTime();
     const now = Date.now();
-
-    console.log(`State change: ${state} at ${currentTime}s, hasPlayed: ${hasPlayedSuccessfully.current}`);
 
     // Detect buffering
     if (state === 3) { // Buffering
+      console.log('[onStateChange] Buffering detected');
       isBuffering.current = true;
       return;
     } else {
@@ -154,6 +178,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     // For unstarted state, don't broadcast
     if (state === -1 || state === 5) { // unstarted or video cued
+      console.log('[onStateChange] Unstarted/Cued - resetting state');
       hasPlayedSuccessfully.current = false;
       consecutivePlayEvents.current = 0;
       return;
@@ -163,12 +188,15 @@ const YouTubePlayer = memo(function YouTubePlayer({
     switch (state) {
       case 1: // Playing
         consecutivePlayEvents.current++;
+        console.log(`[onStateChange] PLAYING event #${consecutivePlayEvents.current}`);
 
         // Consider video as successfully playing after 2 consecutive play events
         // (reduced from 3 since we're now using manual start)
         if (consecutivePlayEvents.current >= 2) {
+          if (!hasPlayedSuccessfully.current) {
+            console.log('[onStateChange] ✅ Video is now successfully playing!');
+          }
           hasPlayedSuccessfully.current = true;
-          console.log('Video is now successfully playing');
         }
 
         lastPlayTime.current = now;
@@ -176,10 +204,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
         // Ensure we're unmuted when playing
         if (isMuted.current && playerRef.current) {
+          console.log('[onStateChange] Unmuting video');
           playerRef.current.unMute();
           isMuted.current = false;
         }
 
+        console.log(`[onStateChange] Emitting PLAYING to server at position ${currentTime}`);
         socket.emit('host-state-change', {
           roomId,
           state: 'playing',
@@ -189,35 +219,44 @@ const YouTubePlayer = memo(function YouTubePlayer({
         break;
 
       case 2: // Paused
+        console.log(`[onStateChange] PAUSED event at ${currentTime}`);
+
         // CRITICAL: Only broadcast pause if video has been successfully playing
         if (!hasPlayedSuccessfully.current) {
-          console.log('Ignoring pause - video has not played successfully yet');
+          console.log('[onStateChange] ❌ IGNORING PAUSE - video never played successfully');
+          console.log(`[onStateChange] Play attempts: ${playAttempts.current}`);
 
           // If we're getting pause events without successful play, likely autoplay issue
           playAttempts.current++;
           if (playAttempts.current > 3 && currentTime < 1) {
+            console.log('[onStateChange] Too many failed attempts - showing click to start');
             setNeedsUserGesture(true);
             playAttempts.current = 0;
           }
           return;
         }
 
+        const timeSincePlay = now - lastPlayTime.current;
+        console.log(`[onStateChange] Time since last play: ${timeSincePlay}ms`);
+
         // Only broadcast pause if enough time has passed since last play
         // This filters out the pause events that happen during buffering
-        if (now - lastPlayTime.current < 2000) {
-          console.log('Ignoring pause - too soon after play');
+        if (timeSincePlay < 2000) {
+          console.log('[onStateChange] ❌ IGNORING PAUSE - too soon after play');
           return;
         }
 
         // Check if this might be a user-initiated pause
         // User pauses typically happen after the video has been playing for a while
         const isLikelyUserPause = currentTime > 2 && hasPlayedSuccessfully.current;
+        console.log(`[onStateChange] User pause check: time=${currentTime}, likely=${isLikelyUserPause}, flagged=${userInitiatedPause.current}`);
 
         if (!isLikelyUserPause && !userInitiatedPause.current) {
-          console.log('Ignoring pause - not user initiated');
+          console.log('[onStateChange] ❌ IGNORING PAUSE - not user initiated');
           return;
         }
 
+        console.log('[onStateChange] ✅ Broadcasting PAUSE to server');
         consecutivePlayEvents.current = 0; // Reset play counter
         lastPauseTime.current = now;
 
@@ -233,8 +272,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
   // Handle host seek detection
   useEffect(() => {
-    if (!isHost || !playerRef.current) return;
+    if (!isHost || !playerRef.current) {
+      console.log('[Seek Detection] Not host or no player - skipping');
+      return;
+    }
 
+    console.log('[Seek Detection] Setting up seek detection for host');
     let lastPosition = 0;
     const interval = setInterval(() => {
       if (!playerRef.current || isBuffering.current) return;
@@ -267,8 +310,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
   // VIEWER: Listen for state broadcasts
   useEffect(() => {
-    if (isHost) return;
+    if (isHost) {
+      console.log('[useEffect] Host mode - not listening for state changes');
+      return;
+    }
 
+    console.log('[useEffect] Viewer mode - setting up state change listeners');
     const socket = getSocket();
 
     const handleStateChange = (data: {
@@ -327,8 +374,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
     };
 
     const handleVideoChange = (videoId: string) => {
+      console.log(`[handleVideoChange] Video changed to: ${videoId}, isHost: ${isHost}`);
+
       if (playerRef.current) {
         // Reset all state tracking when video changes
+        console.log('[handleVideoChange] Resetting all state tracking');
         hasPlayedSuccessfully.current = false;
         consecutivePlayEvents.current = 0;
         userInitiatedPause.current = false;
@@ -336,10 +386,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
         // For host, always require click to start new video
         if (isHost) {
+          console.log('[handleVideoChange] HOST - Using cueVideoById to prevent autoplay');
           setNeedsUserGesture(true);
           // Use cueVideoById instead of loadVideoById to prevent autoplay
           playerRef.current.cueVideoById(videoId);
         } else {
+          console.log('[handleVideoChange] VIEWER - Using loadVideoById');
           playerRef.current.loadVideoById(videoId);
         }
       }
@@ -356,7 +408,12 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
   // Handle user gesture to start playback
   const handleUserStart = async () => {
-    if (!playerRef.current) return;
+    console.log('[handleUserStart] User clicked to start video');
+
+    if (!playerRef.current) {
+      console.log('[handleUserStart] No player ref - aborting');
+      return;
+    }
 
     hasUserInteracted.current = true;
     playAttempts.current = 0;
@@ -366,11 +423,13 @@ const YouTubePlayer = memo(function YouTubePlayer({
     try {
       // For host, play and mark as starting fresh
       if (isHost) {
+        console.log('[handleUserStart] HOST - Starting video playback');
         // Reset state for clean start
         hasPlayedSuccessfully.current = false;
         consecutivePlayEvents.current = 0;
 
         await playerRef.current.playVideo();
+        console.log('[handleUserStart] Play command sent successfully');
         setNeedsUserGesture(false);
         return;
       }
@@ -424,8 +483,10 @@ const YouTubePlayer = memo(function YouTubePlayer({
           videoId={videoId}
           opts={opts}
           onReady={onReady}
-          onStateChange={isHost ? onStateChange : undefined}
+          onStateChange={onStateChange}
           onError={(e) => console.error('YouTube error:', e)}
+          onPlay={() => console.log('[YouTube] onPlay event fired')}
+          onPause={() => console.log('[YouTube] onPause event fired')}
           className="w-full h-full"
           iframeClassName="w-full h-full"
         />
