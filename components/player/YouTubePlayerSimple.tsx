@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, memo } from 'react';
 import YouTube, { YouTubeEvent, YouTubeProps } from 'react-youtube';
-import { getSocket } from '@/lib/socket';
+import { getSocket } from '@/lib/socket/socket';
 import * as Icons from 'react-feather';
 
 interface YouTubePlayerProps {
@@ -22,6 +22,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
   isHost,
   videoState
 }: YouTubePlayerProps) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
