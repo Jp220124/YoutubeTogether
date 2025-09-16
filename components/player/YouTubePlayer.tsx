@@ -200,25 +200,16 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
     const socket = getSocket();
 
     const handlePlay = (data: { timestamp: number; position: number }) => {
-      console.log('Viewer: Received play command with timestamp sync');
+      console.log('Viewer: Received play command');
       if (playerRef.current && playerRef.current.playVideo) {
         ignoreNextStateChange.current = true;
-
-        // Detect iPad
-        const isIPad = /iPad/.test(navigator.userAgent) ||
-                       (navigator.userAgent.includes("Mac") && "ontouchend" in document);
 
         // Calculate where the video should be based on timestamp
         const elapsed = (Date.now() - data.timestamp) / 1000;
         const targetPosition = data.position + elapsed;
 
-        // Only seekTo if not iPad OR if difference is huge (>5 seconds)
-        const currentTime = playerRef.current.getCurrentTime ? playerRef.current.getCurrentTime() : 0;
-        const timeDiff = Math.abs(currentTime - targetPosition);
-
-        if (!isIPad || timeDiff > 5) {
-          playerRef.current.seekTo(targetPosition, true);
-        }
+        // Always seek to the correct position when play is commanded
+        playerRef.current.seekTo(targetPosition, true);
 
         // Store sync reference
         playStartTime.current = data.timestamp;
@@ -243,18 +234,8 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       if (playerRef.current && playerRef.current.pauseVideo) {
         ignoreNextStateChange.current = true;
         playerRef.current.pauseVideo();
-
-        // Detect iPad
-        const isIPad = /iPad/.test(navigator.userAgent) ||
-                       (navigator.userAgent.includes("Mac") && "ontouchend" in document);
-
-        // Only seekTo if not iPad OR if difference is significant
-        const currentTime = playerRef.current.getCurrentTime ? playerRef.current.getCurrentTime() : 0;
-        const timeDiff = Math.abs(currentTime - data.position);
-
-        if (!isIPad || timeDiff > 5) {
-          playerRef.current.seekTo(data.position, true);
-        }
+        // Always seek to the exact position when paused
+        playerRef.current.seekTo(data.position, true);
       }
     };
 
@@ -332,9 +313,15 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
     return () => clearInterval(checkForSeek);
   }, [isHost, roomId]);
 
-  // Viewer sync using playback rate adjustment (smooth catch-up)
+  // Viewer sync - ONLY for desktop, disabled on mobile/iPad to prevent lag
   useEffect(() => {
     if (isHost || !playerRef.current) return;
+
+    // COMPLETELY DISABLE continuous sync on mobile and iPad
+    if (isMobile.current) {
+      console.log('Mobile/iPad detected - continuous sync disabled');
+      return;
+    }
 
     const syncWithHost = () => {
       if (!playerRef.current || !playerRef.current.getCurrentTime) return;
@@ -351,12 +338,8 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       const expectedPosition = playStartPosition.current + elapsed;
       const drift = currentTime - expectedPosition;
 
-      // Detect iPad specifically
-      const isIPad = /iPad/.test(navigator.userAgent) ||
-                     (navigator.userAgent.includes("Mac") && "ontouchend" in document);
-
-      // Desktop: Use playback rate adjustment for smooth sync
-      if (!isMobile.current && Math.abs(drift) > 0.2) {
+      // Desktop only: Use playback rate adjustment for smooth sync
+      if (Math.abs(drift) > 0.2) {
         if (drift > 0) {
           // We're ahead, slow down
           player.setPlaybackRate(0.9);
@@ -372,28 +355,10 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         }
         console.log(`Desktop: Adjusting sync, drift: ${drift.toFixed(2)}s`);
       }
-      // iPad: Only sync if VERY out of sync (>5 seconds) to prevent lag
-      else if (isIPad && Math.abs(drift) > 5) {
-        ignoreNextStateChange.current = true;
-        player.seekTo(expectedPosition, true);
-        console.log(`iPad: Critical resync needed, drift: ${drift.toFixed(2)}s`);
-      }
-      // Other mobile devices: Sync at 3 seconds drift
-      else if (isMobile.current && !isIPad && Math.abs(drift) > 3) {
-        ignoreNextStateChange.current = true;
-        player.seekTo(expectedPosition, true);
-        console.log(`Mobile: Force resync, drift: ${drift.toFixed(2)}s`);
-      }
     };
 
-    // Detect iPad for different sync frequency
-    const isIPad = /iPad/.test(navigator.userAgent) ||
-                   (navigator.userAgent.includes("Mac") && "ontouchend" in document);
-
-    // Run sync less frequently on iPad (every 10s) to prevent lag
-    const syncFrequency = isIPad ? 10000 : 2000;
-    const syncInterval = setInterval(syncWithHost, syncFrequency);
-
+    // Desktop only - check every 2 seconds
+    const syncInterval = setInterval(syncWithHost, 2000);
     return () => clearInterval(syncInterval);
   }, [isHost, roomId]);
 
