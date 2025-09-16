@@ -47,7 +47,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
   // Update latest video state ref whenever it changes
   useEffect(() => {
     latestVideoState.current = videoState;
-    console.log('[useEffect] Updated latestVideoState:', videoState);
+    console.log('[useEffect] Updated latestVideoState from props:', videoState);
   }, [videoState]);
 
   // Detect mobile on mount and track user interactions
@@ -475,7 +475,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       socket.off('video-changed', handleVideoChange);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHost, roomId, videoState.isPlaying]); // Re-setup listeners if these change
+  }, [isHost, roomId]); // Only re-setup if host status or room changes
 
   // Handle user gesture to start playback
   const handleUserStart = async () => {
@@ -505,9 +505,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
         return;
       }
 
-      // For viewers, use the latest video state (which gets updated by socket events)
-      const currentState = latestVideoState.current;
-      console.log('[handleUserStart] VIEWER - Using latest video state:', currentState);
+      // For viewers, always use the prop videoState which has the server's latest state
+      // latestVideoState might not be updated yet if no socket events have been received
+      const currentState = videoState; // Use prop directly, not the ref
+      console.log('[handleUserStart] VIEWER - Using videoState prop:', currentState);
+      console.log('[handleUserStart] VIEWER - latestVideoState ref:', latestVideoState.current);
 
       let syncPosition = 0;
       if (currentState.isPlaying && currentState.lastUpdate) {
