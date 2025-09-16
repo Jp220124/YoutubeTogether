@@ -33,6 +33,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const lastCommandTime = useRef(0);
   const hasUserInteracted = useRef(false);
   const isMuted = useRef(false);
+  const playAttempts = useRef(0);
 
   // Detect mobile on mount and track user interactions
   useEffect(() => {
@@ -60,13 +61,14 @@ const YouTubePlayer = memo(function YouTubePlayer({
     height: '100%',
     playerVars: {
       autoplay: 0, // Never autoplay
-      controls: 1, // Always show controls
+      controls: isHost ? 1 : 0, // Only host has controls
       fs: 1, // Enable fullscreen for all
       playsinline: 1,
       enablejsapi: 1,
       modestbranding: 1,
       rel: 0,
       origin: window.location.origin,
+      disablekb: isHost ? 0 : 1, // Disable keyboard for viewers
     },
   };
 
@@ -79,11 +81,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
     if (!isHost && videoState.videoId) {
       event.target.seekTo(videoState.currentTime, true);
       if (videoState.isPlaying) {
-        event.target.playVideo().catch(() => {
-          // Need user gesture on mobile
-          if (isMobile.current) {
-            setNeedsUserGesture(true);
-          }
+        // Try muted autoplay first
+        event.target.mute();
+        isMuted.current = true;
+        event.target.playVideo().then(() => {
+          // Unmute after successful play
+          setTimeout(() => {
+            if (playerRef.current && isMuted.current) {
+              playerRef.current.unMute();
+              isMuted.current = false;
+            }
+          }, 500);
+        }).catch(() => {
+          // Need user gesture
+          setNeedsUserGesture(true);
         });
       }
     }
@@ -106,9 +117,26 @@ const YouTubePlayer = memo(function YouTubePlayer({
       isBuffering.current = false;
     }
 
+    // For unstarted state, don't broadcast
+    if (state === -1 || state === 5) { // unstarted or video cued
+      // If video is cued and host tries to play but fails
+      if (state === 5 && playAttempts.current > 0) {
+        // Host needs to click to start
+        setNeedsUserGesture(true);
+        playAttempts.current = 0;
+      }
+      return;
+    }
+
     // Broadcast state changes
     switch (state) {
       case 1: // Playing
+        playAttempts.current = 0; // Reset attempts on successful play
+        // Ensure we're unmuted when playing
+        if (isMuted.current && playerRef.current) {
+          playerRef.current.unMute();
+          isMuted.current = false;
+        }
         socket.emit('host-state-change', {
           roomId,
           state: 'playing',
@@ -117,6 +145,15 @@ const YouTubePlayer = memo(function YouTubePlayer({
         });
         break;
       case 2: // Paused
+        // Check if this pause happened immediately after trying to play
+        if (currentTime < 1 && playAttempts.current > 0) {
+          playAttempts.current++;
+          // If multiple failed attempts, show click to start
+          if (playAttempts.current > 2) {
+            setNeedsUserGesture(true);
+            playAttempts.current = 0;
+          }
+        }
         socket.emit('host-state-change', {
           roomId,
           state: 'paused',
@@ -146,6 +183,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
           position: currentPosition,
           timestamp: Date.now()
         });
+      }
+
+      // Track play attempts for autoplay detection
+      if (currentPosition < 0.5 && playerRef.current.getPlayerState() !== 1) {
+        playAttempts.current++;
       }
 
       lastPosition = currentPosition;
@@ -231,23 +273,46 @@ const YouTubePlayer = memo(function YouTubePlayer({
   }, [isHost]);
 
   // Handle user gesture to start playback
-  const handleUserStart = () => {
-    if (playerRef.current) {
-      hasUserInteracted.current = true;
+  const handleUserStart = async () => {
+    if (!playerRef.current) return;
 
-      // If muted, unmute first
-      if (isMuted.current) {
-        playerRef.current.unMute();
-        isMuted.current = false;
+    hasUserInteracted.current = true;
+    playAttempts.current = 0;
+
+    try {
+      // For host, just play directly
+      if (isHost) {
+        await playerRef.current.playVideo();
+        setNeedsUserGesture(false);
+        return;
       }
 
-      // Sync to current position and play
+      // For viewers, sync to current position
       if (videoState.currentTime) {
         playerRef.current.seekTo(videoState.currentTime, true);
       }
 
-      playerRef.current.playVideo();
+      // Try playing with mute first if needed
+      try {
+        await playerRef.current.playVideo();
+      } catch (error) {
+        // Fallback to muted play
+        playerRef.current.mute();
+        isMuted.current = true;
+        await playerRef.current.playVideo();
+
+        // Unmute after successful play
+        setTimeout(() => {
+          if (playerRef.current && isMuted.current) {
+            playerRef.current.unMute();
+            isMuted.current = false;
+          }
+        }, 500);
+      }
+
       setNeedsUserGesture(false);
+    } catch (error) {
+      console.error('Failed to start playback:', error);
     }
   };
 
@@ -290,7 +355,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       )}
 
       {/* User gesture required to start */}
-      {needsUserGesture && !isHost && (
+      {needsUserGesture && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/50 z-40">
           <button
             onClick={handleUserStart}
@@ -298,7 +363,9 @@ const YouTubePlayer = memo(function YouTubePlayer({
           >
             <Icons.Play className="w-12 h-12" fill="white" />
           </button>
-          <p className="mt-4 text-white text-lg">Click to sync with host</p>
+          <p className="mt-4 text-white text-lg">
+            {isHost ? 'Click to start video' : 'Click to sync with host'}
+          </p>
           {isMuted.current && (
             <p className="mt-2 text-white/70 text-sm">Video will start muted</p>
           )}
@@ -306,7 +373,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
       )}
 
       {/* Simple status indicator */}
-      <div className="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs">
+      <div className="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs z-20">
         {isHost ? (
           <span className="flex items-center gap-1">
             <Icons.Award className="w-3 h-3 text-yellow-400" />
@@ -319,6 +386,18 @@ const YouTubePlayer = memo(function YouTubePlayer({
           </span>
         )}
       </div>
+
+      {/* Viewer controls overlay */}
+      {!isHost && !needsUserGesture && videoId && (
+        <div
+          className="absolute inset-0 z-10"
+          style={{ pointerEvents: 'auto' }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        />
+      )}
 
       {/* Fullscreen button for desktop */}
       {!isMobile.current && (
