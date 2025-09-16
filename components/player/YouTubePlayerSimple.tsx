@@ -34,6 +34,9 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const hasUserInteracted = useRef(false);
   const isMuted = useRef(false);
   const playAttempts = useRef(0);
+  const lastPlayTime = useRef(0);
+  const lastPauseTime = useRef(0);
+  const ignoreNextPause = useRef(false);
 
   // Detect mobile on mount and track user interactions
   useEffect(() => {
@@ -108,6 +111,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
     const socket = getSocket();
     const state = event.data;
     const currentTime = playerRef.current.getCurrentTime();
+    const now = Date.now();
 
     // Detect buffering
     if (state === 3) { // Buffering
@@ -119,46 +123,64 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     // For unstarted state, don't broadcast
     if (state === -1 || state === 5) { // unstarted or video cued
-      // If video is cued and host tries to play but fails
-      if (state === 5 && playAttempts.current > 0) {
-        // Host needs to click to start
-        setNeedsUserGesture(true);
-        playAttempts.current = 0;
-      }
       return;
     }
 
-    // Broadcast state changes
+    // Broadcast state changes with debouncing
     switch (state) {
       case 1: // Playing
-        playAttempts.current = 0; // Reset attempts on successful play
+        lastPlayTime.current = now;
+        ignoreNextPause.current = true;
+        // Reset ignore flag after a short delay
+        setTimeout(() => {
+          ignoreNextPause.current = false;
+        }, 500);
+
         // Ensure we're unmuted when playing
         if (isMuted.current && playerRef.current) {
           playerRef.current.unMute();
           isMuted.current = false;
         }
+
         socket.emit('host-state-change', {
           roomId,
           state: 'playing',
           position: currentTime,
-          timestamp: Date.now()
+          timestamp: now
         });
         break;
+
       case 2: // Paused
-        // Check if this pause happened immediately after trying to play
-        if (currentTime < 1 && playAttempts.current > 0) {
+        // Ignore pause events that happen immediately after play (within 500ms)
+        if (ignoreNextPause.current) {
+          console.log('Ignoring transient pause after play');
+          return;
+        }
+
+        // Ignore rapid pause events (within 200ms of last pause)
+        if (now - lastPauseTime.current < 200) {
+          console.log('Ignoring rapid pause event');
+          return;
+        }
+
+        // Ignore pause at the very beginning (likely autoplay block)
+        if (currentTime < 0.5 && now - lastPlayTime.current < 1000) {
+          console.log('Ignoring initial pause, likely autoplay block');
+          // Show click to start if this happens multiple times
           playAttempts.current++;
-          // If multiple failed attempts, show click to start
           if (playAttempts.current > 2) {
             setNeedsUserGesture(true);
             playAttempts.current = 0;
           }
+          return;
         }
+
+        lastPauseTime.current = now;
         socket.emit('host-state-change', {
           roomId,
           state: 'paused',
           position: currentTime,
-          timestamp: Date.now()
+          timestamp: now
         });
         break;
     }
@@ -259,6 +281,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     const handleVideoChange = (videoId: string) => {
       if (playerRef.current) {
+        // Reset state tracking when video changes
+        ignoreNextPause.current = true;
+        setTimeout(() => {
+          ignoreNextPause.current = false;
+        }, 1000);
         playerRef.current.loadVideoById(videoId);
       }
     };
