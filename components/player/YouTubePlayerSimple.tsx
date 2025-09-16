@@ -217,7 +217,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
           onReady={onReady}
           onStateChange={onStateChange}
           onError={(e) => console.error('YouTube error:', e)}
-          className="absolute inset-0 w-full h-full"
+          className="w-full h-full"
+          iframeClassName="w-full h-full"
         />
       ) : (
         <div className="flex items-center justify-center h-full">

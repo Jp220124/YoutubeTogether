@@ -318,13 +318,15 @@ export default function Room() {
             {currentRoom.videoState.videoId ? (
               <div className="w-full max-w-6xl mx-auto">
                 <div className="bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100 p-4">
-                  <div className="bg-gradient-to-br from-gray-900 to-black rounded-2xl overflow-hidden">
-                    <YouTubePlayer
-                      videoId={currentRoom.videoState.videoId}
-                      roomId={roomId}
-                      isHost={currentUser?.isHost || false}
-                      videoState={currentRoom.videoState}
-                    />
+                  <div className="relative bg-gradient-to-br from-gray-900 to-black rounded-2xl overflow-hidden" style={{ paddingBottom: '56.25%' }}>
+                    <div className="absolute inset-0">
+                      <YouTubePlayer
+                        videoId={currentRoom.videoState.videoId}
+                        roomId={roomId}
+                        isHost={currentUser?.isHost || false}
+                        videoState={currentRoom.videoState}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
