@@ -29,6 +29,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [needsUserGesture, setNeedsUserGesture] = useState(false);
   const [pendingPlay, setPendingPlay] = useState(false);
+  const [hasStartedOnce, setHasStartedOnce] = useState(false); // Track if video has started once
   const ignoreNextStateChange = useRef(false);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncTime = useRef(0);
@@ -78,7 +79,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         videoId: videoState.videoId,
         playerVars: {
           autoplay: 0,
-          controls: isHost ? 1 : 0, // Only host has controls, even on mobile
+          controls: isHost ? 1 : (isMobile.current && !hasStartedOnce ? 1 : 0), // Show controls for first play on mobile
           disablekb: !isHost ? 1 : 0,
           modestbranding: 1,
           rel: 0,
@@ -127,17 +128,48 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
               return;
             }
 
-            // For non-hosts on mobile, detect if they've manually interacted with the player
+            // For non-hosts on mobile, detect state changes
             if (!isHost && isMobile.current) {
-              const currentTime = event.target.getCurrentTime();
-              const expectedTime = playStartPosition.current + ((Date.now() - playStartTime.current) / 1000);
+              // If this is the first play, mark it and hide controls
+              if (event.data === window.YT.PlayerState.PLAYING && !hasStartedOnce) {
+                console.log('Mobile viewer started video for first time');
+                setHasStartedOnce(true);
+                setNeedsUserGesture(false);
 
-              // If viewer is more than 1 second out of sync, they've manually seeked
-              if (Math.abs(currentTime - expectedTime) > 1) {
-                console.log('Mobile viewer manually seeked, resyncing...');
-                // Force resync to host position
-                event.target.seekTo(expectedTime, true);
-                return;
+                // Hide controls after first play
+                setTimeout(() => {
+                  if (event.target && event.target.setOption) {
+                    // Try to disable controls programmatically
+                    try {
+                      const iframe = event.target.getIframe();
+                      if (iframe) {
+                        // Reload player without controls
+                        const videoId = event.target.getVideoData().video_id;
+                        const currentTime = event.target.getCurrentTime();
+                        event.target.loadVideoById({
+                          videoId: videoId,
+                          startSeconds: currentTime
+                        });
+                      }
+                    } catch (e) {
+                      console.log('Could not disable controls:', e);
+                    }
+                  }
+                }, 100);
+              }
+
+              // After first play, detect manual interactions
+              if (hasStartedOnce) {
+                const currentTime = event.target.getCurrentTime();
+                const expectedTime = playStartPosition.current + ((Date.now() - playStartTime.current) / 1000);
+
+                // If viewer is more than 1 second out of sync, they've manually seeked
+                if (Math.abs(currentTime - expectedTime) > 1) {
+                  console.log('Mobile viewer manually seeked, resyncing...');
+                  // Force resync to host position
+                  event.target.seekTo(expectedTime, true);
+                  return;
+                }
               }
             }
 
@@ -392,6 +424,7 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       playerRef.current.playVideo();
       setNeedsUserGesture(false);
       setPendingPlay(false);
+      setHasStartedOnce(true);
     }
   };
 
@@ -422,8 +455,8 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         </div>
       )}
 
-      {/* Mobile viewer overlay - Prevent controls but show message */}
-      {!isHost && isMobile.current && !isLoading && !needsUserGesture && (
+      {/* Mobile viewer overlay - Only show AFTER first play */}
+      {!isHost && isMobile.current && !isLoading && !needsUserGesture && hasStartedOnce && (
         <div className="absolute inset-0 z-25 pointer-events-none">
           <div
             className="absolute inset-0 pointer-events-auto"
