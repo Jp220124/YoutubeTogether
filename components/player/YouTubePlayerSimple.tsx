@@ -122,8 +122,18 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
     // For viewers, sync to current state
     if (!isHost && videoState.videoId) {
-      console.log(`[onReady] Viewer detected - syncing to state: playing=${videoState.isPlaying}, time=${videoState.currentTime}`);
-      event.target.seekTo(videoState.currentTime, true);
+      // Calculate actual current position if video is playing
+      let syncPosition = 0;
+      if (videoState.isPlaying && videoState.lastUpdate) {
+        const elapsedSeconds = (Date.now() - videoState.lastUpdate) / 1000;
+        syncPosition = (videoState.currentTime || 0) + elapsedSeconds;
+        console.log(`[onReady] Viewer detected - video is playing, calculated position: ${syncPosition}`);
+        console.log(`[onReady] Calculation: ${videoState.currentTime} + ${elapsedSeconds}s elapsed`);
+      } else {
+        syncPosition = videoState.currentTime || 0;
+        console.log(`[onReady] Viewer detected - video is paused at position: ${syncPosition}`);
+      }
+      event.target.seekTo(syncPosition, true);
       if (videoState.isPlaying) {
         console.log('[onReady] Attempting muted autoplay for viewer');
         // Try muted autoplay first
@@ -354,6 +364,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
           console.log(`[Viewer] Applying PLAY command at position ${data.position}`);
 
           // Always seek first to ensure correct position
+          console.log(`[Viewer] Seeking to position ${data.position} from state-changed event`);
           playerRef.current.seekTo(data.position, true);
 
           // Try to play with different strategies
@@ -481,10 +492,23 @@ const YouTubePlayer = memo(function YouTubePlayer({
         return;
       }
 
-      // For viewers, sync to current position
-      if (videoState.currentTime) {
-        playerRef.current.seekTo(videoState.currentTime, true);
+      // For viewers, calculate and sync to actual current position
+      let syncPosition = 0;
+      if (videoState.isPlaying && videoState.lastUpdate) {
+        // Video is playing - calculate current position based on time elapsed
+        const elapsedSeconds = (Date.now() - videoState.lastUpdate) / 1000;
+        syncPosition = (videoState.currentTime || 0) + elapsedSeconds;
+        console.log(`[handleUserStart] VIEWER - Video is playing, syncing to calculated position: ${syncPosition}`);
+        console.log(`[handleUserStart] Calculation: ${videoState.currentTime} + ${elapsedSeconds} elapsed seconds`);
+      } else {
+        // Video is paused - use the stored position
+        syncPosition = videoState.currentTime || 0;
+        console.log(`[handleUserStart] VIEWER - Video is paused, syncing to position: ${syncPosition}`);
       }
+
+      // Seek to calculated position
+      playerRef.current.seekTo(syncPosition, true);
+      console.log(`[handleUserStart] Seeked to position: ${syncPosition}`);
 
       // Try playing with mute first if needed
       try {
