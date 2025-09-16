@@ -27,28 +27,37 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
   const [isReady, setIsReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [needsUserGesture, setNeedsUserGesture] = useState(false);
+  const [pendingPlay, setPendingPlay] = useState(false);
   const ignoreNextStateChange = useRef(false);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncTime = useRef(0);
   const playStartTime = useRef(0);
   const playStartPosition = useRef(0);
+  const isMobile = useRef(false);
 
   // Remove console log to reduce noise
   // console.log('YouTubePlayer render:', { videoState, isHost, isReady });
 
   // Load YouTube IFrame API
   useEffect(() => {
-    if (typeof window !== 'undefined' && !window.YT) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    if (typeof window !== 'undefined') {
+      // Detect if mobile
+      const userAgent = navigator.userAgent.toLowerCase();
+      isMobile.current = /mobile|android|iphone|ipad|ipod/.test(userAgent);
 
-      window.onYouTubeIframeAPIReady = () => {
+      if (!window.YT) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        const firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+
+        window.onYouTubeIframeAPIReady = () => {
+          setIsReady(true);
+        };
+      } else {
         setIsReady(true);
-      };
-    } else if (window.YT) {
-      setIsReady(true);
+      }
     }
   }, []);
 
@@ -69,16 +78,17 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         videoId: videoState.videoId,
         playerVars: {
           autoplay: 0,
-          controls: isHost ? 1 : 0,
-          disablekb: !isHost ? 1 : 0, // Disable keyboard for viewers only
+          controls: isHost ? 1 : (isMobile.current ? 1 : 0), // Enable controls for viewers on mobile
+          disablekb: !isHost ? 1 : 0,
           modestbranding: 1,
           rel: 0,
           origin: window.location.origin,
-          fs: 0, // Disable YouTube's fullscreen (we use custom)
+          fs: 0,
           playsinline: 1,
           enablejsapi: 1,
-          iv_load_policy: 3, // Hide annotations
-          cc_load_policy: 0, // Hide closed captions by default
+          iv_load_policy: 3,
+          cc_load_policy: 0,
+          mute: 0
         },
         events: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -167,15 +177,26 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         ignoreNextStateChange.current = true;
 
         // Calculate where the video should be based on timestamp
-        const elapsed = (Date.now() - data.timestamp) / 1000; // Convert to seconds
+        const elapsed = (Date.now() - data.timestamp) / 1000;
         const targetPosition = data.position + elapsed;
 
         playerRef.current.seekTo(targetPosition, true);
-        playerRef.current.playVideo();
 
         // Store sync reference
         playStartTime.current = data.timestamp;
         playStartPosition.current = data.position;
+
+        // Try to play
+        try {
+          playerRef.current.playVideo();
+        } catch (e) {
+          console.log('Play failed, need user gesture');
+          // On mobile, if autoplay fails, we need user gesture
+          if (isMobile.current && !isHost) {
+            setPendingPlay(true);
+            setNeedsUserGesture(true);
+          }
+        }
       }
     };
 
@@ -281,8 +302,8 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       const expectedPosition = playStartPosition.current + elapsed;
       const drift = currentTime - expectedPosition;
 
-      // Adjust playback rate to smoothly sync
-      if (Math.abs(drift) > 0.2) { // Only adjust if drift > 0.2 seconds
+      // Adjust playback rate to smoothly sync (skip on mobile for performance)
+      if (!isMobile.current && Math.abs(drift) > 0.2) {
         if (drift > 0) {
           // We're ahead, slow down
           player.setPlaybackRate(0.9);
@@ -297,6 +318,10 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
           }, Math.abs(drift) * 1000);
         }
         console.log(`Viewer: Adjusting sync, drift: ${drift.toFixed(2)}s`);
+      } else if (isMobile.current && Math.abs(drift) > 2) {
+        // On mobile, only seek if drift is significant (>2 seconds)
+        player.seekTo(expectedPosition, true);
+        console.log(`Mobile: Hard sync, drift: ${drift.toFixed(2)}s`);
       }
     };
 
@@ -339,6 +364,15 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
     };
   }, []);
 
+  // Handle mobile play button click
+  const handleMobilePlay = () => {
+    if (playerRef.current && pendingPlay) {
+      playerRef.current.playVideo();
+      setNeedsUserGesture(false);
+      setPendingPlay(false);
+    }
+  };
+
   return (
     <div className="relative w-full bg-black rounded-lg sm:rounded-xl lg:rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: '16/9' }}>
       {isLoading && (
@@ -350,6 +384,21 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
         </div>
       )}
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+
+      {/* Mobile Play Button Overlay - Shows when user gesture needed */}
+      {needsUserGesture && !isHost && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50">
+          <button
+            onClick={handleMobilePlay}
+            className="bg-red-600 hover:bg-red-700 text-white p-6 rounded-full shadow-2xl transform hover:scale-110 transition-all"
+          >
+            <Icons.Play className="w-12 h-12" fill="white" />
+          </button>
+          <div className="absolute bottom-8 text-white text-center px-4">
+            <p className="text-sm font-medium">Tap to sync with host</p>
+          </div>
+        </div>
+      )}
 
       {/* Control overlay for all users */}
       {!isLoading && (
@@ -384,8 +433,8 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
             )}
           </div>
 
-          {/* Click blocker for non-hosts - but not blocking the fullscreen button area */}
-          {!isHost && (
+          {/* Click blocker for non-hosts - disabled on mobile to allow native controls */}
+          {!isHost && !isMobile.current && (
             <div
               className="absolute inset-0 pointer-events-auto"
               style={{
