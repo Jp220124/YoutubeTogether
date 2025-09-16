@@ -31,6 +31,7 @@ const YouTubePlayer = memo(function YouTubePlayer({
   const isMobile = useRef(false);
   const isBuffering = useRef(false);
   const lastCommandTime = useRef(0);
+  const isApplyingRemoteState = useRef(false);
 
   // Detect mobile on mount
   useEffect(() => {
@@ -76,6 +77,11 @@ const YouTubePlayer = memo(function YouTubePlayer({
 
   // Handle state changes - HOST ONLY broadcasts
   const onStateChange = (event: YouTubeEvent) => {
+    // For viewers, ignore state changes triggered by remote commands
+    if (!isHost && isApplyingRemoteState.current) {
+      return;
+    }
+
     if (!isHost || !playerRef.current) return;
 
     const socket = getSocket();
@@ -157,6 +163,8 @@ const YouTubePlayer = memo(function YouTubePlayer({
       lastCommandTime.current = now;
 
       // Apply state immediately without calculations
+      isApplyingRemoteState.current = true;
+
       switch (data.state) {
         case 'playing':
           playerRef.current.seekTo(data.position, true);
@@ -170,11 +178,20 @@ const YouTubePlayer = memo(function YouTubePlayer({
           playerRef.current.seekTo(data.position, true);
           break;
       }
+
+      // Reset flag after a short delay to allow state change to process
+      setTimeout(() => {
+        isApplyingRemoteState.current = false;
+      }, 500);
     };
 
     const handleVideoChange = (videoId: string) => {
       if (playerRef.current) {
+        isApplyingRemoteState.current = true;
         playerRef.current.loadVideoById(videoId);
+        setTimeout(() => {
+          isApplyingRemoteState.current = false;
+        }, 1000);
       }
     };
 
