@@ -204,11 +204,21 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       if (playerRef.current && playerRef.current.playVideo) {
         ignoreNextStateChange.current = true;
 
+        // Detect iPad
+        const isIPad = /iPad/.test(navigator.userAgent) ||
+                       (navigator.userAgent.includes("Mac") && "ontouchend" in document);
+
         // Calculate where the video should be based on timestamp
         const elapsed = (Date.now() - data.timestamp) / 1000;
         const targetPosition = data.position + elapsed;
 
-        playerRef.current.seekTo(targetPosition, true);
+        // Only seekTo if not iPad OR if difference is huge (>5 seconds)
+        const currentTime = playerRef.current.getCurrentTime ? playerRef.current.getCurrentTime() : 0;
+        const timeDiff = Math.abs(currentTime - targetPosition);
+
+        if (!isIPad || timeDiff > 5) {
+          playerRef.current.seekTo(targetPosition, true);
+        }
 
         // Store sync reference
         playStartTime.current = data.timestamp;
@@ -233,7 +243,18 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       if (playerRef.current && playerRef.current.pauseVideo) {
         ignoreNextStateChange.current = true;
         playerRef.current.pauseVideo();
-        playerRef.current.seekTo(data.position, true);
+
+        // Detect iPad
+        const isIPad = /iPad/.test(navigator.userAgent) ||
+                       (navigator.userAgent.includes("Mac") && "ontouchend" in document);
+
+        // Only seekTo if not iPad OR if difference is significant
+        const currentTime = playerRef.current.getCurrentTime ? playerRef.current.getCurrentTime() : 0;
+        const timeDiff = Math.abs(currentTime - data.position);
+
+        if (!isIPad || timeDiff > 5) {
+          playerRef.current.seekTo(data.position, true);
+        }
       }
     };
 
@@ -330,7 +351,11 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       const expectedPosition = playStartPosition.current + elapsed;
       const drift = currentTime - expectedPosition;
 
-      // Adjust playback rate to smoothly sync (skip on mobile for performance)
+      // Detect iPad specifically
+      const isIPad = /iPad/.test(navigator.userAgent) ||
+                     (navigator.userAgent.includes("Mac") && "ontouchend" in document);
+
+      // Desktop: Use playback rate adjustment for smooth sync
       if (!isMobile.current && Math.abs(drift) > 0.2) {
         if (drift > 0) {
           // We're ahead, slow down
@@ -345,17 +370,29 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
             if (player.setPlaybackRate) player.setPlaybackRate(1.0);
           }, Math.abs(drift) * 1000);
         }
-        console.log(`Viewer: Adjusting sync, drift: ${drift.toFixed(2)}s`);
-      } else if (isMobile.current && Math.abs(drift) > 2) {
-        // On mobile, only resync if drift is significant (>2 seconds) to avoid flickering
+        console.log(`Desktop: Adjusting sync, drift: ${drift.toFixed(2)}s`);
+      }
+      // iPad: Only sync if VERY out of sync (>5 seconds) to prevent lag
+      else if (isIPad && Math.abs(drift) > 5) {
+        ignoreNextStateChange.current = true;
+        player.seekTo(expectedPosition, true);
+        console.log(`iPad: Critical resync needed, drift: ${drift.toFixed(2)}s`);
+      }
+      // Other mobile devices: Sync at 3 seconds drift
+      else if (isMobile.current && !isIPad && Math.abs(drift) > 3) {
         ignoreNextStateChange.current = true;
         player.seekTo(expectedPosition, true);
         console.log(`Mobile: Force resync, drift: ${drift.toFixed(2)}s`);
       }
     };
 
-    // Run sync check every 2 seconds
-    const syncInterval = setInterval(syncWithHost, 2000);
+    // Detect iPad for different sync frequency
+    const isIPad = /iPad/.test(navigator.userAgent) ||
+                   (navigator.userAgent.includes("Mac") && "ontouchend" in document);
+
+    // Run sync less frequently on iPad (every 10s) to prevent lag
+    const syncFrequency = isIPad ? 10000 : 2000;
+    const syncInterval = setInterval(syncWithHost, syncFrequency);
 
     return () => clearInterval(syncInterval);
   }, [isHost, roomId]);
@@ -433,12 +470,12 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
       {/* Mobile viewer overlay - Block interactions but allow fullscreen */}
       {!isHost && isMobile.current && !isLoading && hasStartedOnce && (
         <div className="absolute inset-0 z-30 pointer-events-none">
-          {/* Transparent overlay to catch clicks/touches except fullscreen button area */}
+          {/* Transparent overlay to catch clicks/touches except controls bar */}
           <div
             className="absolute inset-0 pointer-events-auto bg-transparent"
             style={{
-              // Cut out area for fullscreen button (bottom-right corner)
-              clipPath: 'polygon(0 0, 100% 0, 100% calc(100% - 50px), calc(100% - 50px) calc(100% - 50px), calc(100% - 50px) 100%, 0 100%)'
+              // Don't cover the bottom 48px where YouTube controls are
+              height: 'calc(100% - 48px)'
             }}
             onClick={(e) => {
               e.preventDefault();
@@ -486,19 +523,17 @@ const YouTubePlayer = memo(function YouTubePlayer({ roomId, isHost, videoState, 
             </button>
           )}
 
-          {/* Host/Viewer indicator */}
-          <div className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4 bg-black/80 text-white px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-medium shadow-lg flex items-center gap-1.5 sm:gap-2">
+          {/* Host/Viewer indicator - small and at top */}
+          <div className="absolute top-2 right-2 bg-black/60 text-white px-2 py-1 rounded text-xs font-medium shadow-sm flex items-center gap-1 opacity-70 hover:opacity-100 transition-opacity">
             {isHost ? (
               <>
-                <Icons.Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
-                <span className="hidden sm:inline">You have control</span>
-                <span className="sm:hidden">Host</span>
+                <Icons.Award className="w-3 h-3 text-yellow-400" />
+                <span>Host</span>
               </>
             ) : (
               <>
-                <Icons.Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400" />
-                <span className="hidden sm:inline">Host controls playback</span>
-                <span className="sm:hidden">Viewer</span>
+                <Icons.Lock className="w-3 h-3 text-gray-400" />
+                <span>Synced</span>
               </>
             )}
           </div>
